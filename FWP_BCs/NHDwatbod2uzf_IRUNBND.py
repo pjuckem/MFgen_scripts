@@ -20,11 +20,15 @@ import sys
 GIS_utils_path = 'D:/PFJData2/Programs/GIS_utils'
 if GIS_utils_path not in sys.path:
     sys.path.append(GIS_utils_path)
+    print sys.path
 import GISio
 import GISops
 
 import pandas as pd
 
+# NHDPlus v2 catchment files (list)
+catchments = ['D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusGL/NHDPlus04/NHDPlusV21_GL_04_NHDPlusCatchments_05/NHDPlusGL/NHDPlus04/NHDPlusCatchment/Catchment.shp',
+              'D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusMS/NHDPlus07/NHDPlusV21_MS_07_NHDPlusCatchment_01/NHDPlusMS/NHDPlus07/NHDPlusCatchment/Catchment.shp']
 # NHDplus v2 waterbodies (no longer a list).  Note: formerly NHDPlus v2 catchment files (list)
 waterbodies = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/NHDPlusV21FWP/NHDWaterbody_merge_FWPregion_UTMft.shp'
 # input shapefile (should all be in same projection!)
@@ -32,7 +36,9 @@ MFdomain = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_domain_UTMft.shp'
 MFgrid = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_grid1000_UTMft.shp'
 SFR_shapefile = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/SFR_AndyFix/SFR_cellinfo_FWPvert1000ft.shp'
 # temporary directories
+catchmentdir = 'D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/'
 workingdir = "D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/"
+
 # output
 out_IRUNBND = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_IRUNBND.dat'
 out_IRUNBND_shp = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_IRUNBND.shp'
@@ -43,32 +49,43 @@ arcpy.env.overwriteOutput = True
 arcpy.env.qualifiedFieldNames = False
 arcpy.CheckOutExtension("spatial") # Check spatial analyst license
 
+print 'removing old temporary and output files'
+if arcpy.Exists(catchmentdir + 'catchment_merge.shp'):
+    arcpy.Delete_management(catchmentdir + 'catchment_merge.shp')
+if arcpy.Exists(catchmentdir + 'catchment_mergeUTMft.shp'):
+    arcpy.Delete_management(catchmentdir + 'catchment_mergeUTMft.shp')
+if arcpy.Exists(workingdir + 'catchment_FWP.shp'):
+    arcpy.Delete_management(workingdir + 'catchment_FWP.shp')
+if arcpy.Exists(workingdir + 'waterbodies_FWP.shp'):
+    arcpy.Delete_management(workingdir + 'waterbodies_FWP.shp')
+if arcpy.Exists(workingdir + 'catchment_WBclip.shp'):
+    arcpy.Delete_management(workingdir + 'catchmentWBclip.shp')
 if arcpy.Exists(workingdir + 'SFR_watbodies.shp'):
     arcpy.Delete_management(workingdir + 'SFR_watbodies.shp')
 if arcpy.Exists(workingdir + 'MFgrid_watbodies.shp'):
     arcpy.Delete_management(workingdir + 'MFgrid_watbodies.shp')
 
 # preprocessing
-'''
-print 'merging NHDPlus catchemnt files:'
+print 'merging NHDPlus catchment files:'
 for f in catchments:
     print f
 if len(catchments) > 1:
-    arcpy.Merge_management(catchments, os.path.join(os.getcwd(), 'temp.shp'))
+    arcpy.Merge_management(catchments, catchmentdir + 'catchment_merge.shp')
 else:
-    arcpy.CopyFeatures_management(catchments[0], os.path.join(os.getcwd(), 'temp.shp'))
+    arcpy.CopyFeatures_management(catchments[0], catchmentdir + 'catchment_merge.shp')
 
 print '\nreprojecting to {}.prj'.format(SFR_shapefile[:-4])
-arcpy.Project_management(os.path.join(os.getcwd(), 'temp.shp'), os.path.join(os.getcwd(), 'temp2.shp'),
-                         SFR_shapefile[:-4] + '.prj')
+arcpy.Project_management(catchmentdir + 'catchment_merge.shp', catchmentdir + 'catchment_mergeUTMft.shp', SFR_shapefile[:-4] + '.prj')
 
-print 'clipping to {}'.format(MFdomain)
-arcpy.Clip_analysis(os.path.join(os.getcwd(), 'temp2.shp'), MFdomain, os.path.join(os.getcwd(), 'catchments.shp'))
-'''
-print 'performing spatial join of waterbodies to SFR cells...'
-arcpy.SpatialJoin_analysis(SFR_shapefile, waterbodies, workingdir + 'SFR_watbodies.shp')
+print 'clipping catchments and waterbodies to {}'.format(MFdomain)
+arcpy.Clip_analysis(catchmentdir + 'catchment_mergeUTMft.shp', MFdomain, workingdir + 'catchment_FWP.shp')
+arcpy.Clip_analysis(waterbodies, MFdomain, workingdir + 'waterbodies_FWP.shp')
+print 'clipping catchments to waterbodies'
+arcpy.Clip_analysis(catchmentdir + 'catchment_mergeUTMft.shp', workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_WBclip.shp')
+print 'performing spatial join of catchments to SFR cells...'
+arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'catchment_WBclip.shp', workingdir + 'SFR_watbodies.shp')
 print 'and to model grid (this may take awhile)...'
-arcpy.SpatialJoin_analysis(MFgrid, waterbodies, workingdir + 'MFgrid_watbodies.shp')
+arcpy.SpatialJoin_analysis(MFgrid, workingdir + 'catchment_WBclip.shp', workingdir + 'MFgrid_watbodies.shp')
 
 # now figure out which SFR segment each waterbody should drain to
 print 'reading {} into pandas dataframe...'.format(os.path.join(workingdir, 'SFR_watbodies.shp'))
