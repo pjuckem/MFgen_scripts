@@ -80,6 +80,7 @@ arcpy.Project_management(catchmentdir + 'catchment_merge.shp', catchmentdir + 'c
 print 'clipping catchments and waterbodies to {}'.format(MFdomain)
 arcpy.Clip_analysis(catchmentdir + 'catchment_mergeUTMft.shp', MFdomain, workingdir + 'catchment_FWP.shp')
 arcpy.Clip_analysis(waterbodies, MFdomain, workingdir + 'waterbodies_FWP.shp')
+# Clipping is not enough.  Need to isolate individual waterbodies withing each catchment
 print 'clipping catchments to waterbodies'
 arcpy.Clip_analysis(catchmentdir + 'catchment_mergeUTMft.shp', workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_WBclip.shp')
 print 'performing spatial join of catchments to SFR cells...'
@@ -122,7 +123,7 @@ GISio.df2shp(MFgrid_joined,
              os.path.join(workingdir + 'MFgrid_watbodies.shp')[:-4]+'.prj')
 
 MFgrid_joined_dissolved = GISops.dissolve_df(MFgrid_joined, 'segment')
-
+# crashing here -- need to figure out why ('geometry' = key_error)
 GISio.df2shp(MFgrid_joined_dissolved,
              os.path.join(workingdir + 'MFgrid_segments_dissolved.shp'),
              'geometry',
