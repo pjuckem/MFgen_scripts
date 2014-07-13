@@ -48,7 +48,7 @@ arcpy.env.workspace = os.getcwd()
 arcpy.env.overwriteOutput = True
 arcpy.env.qualifiedFieldNames = False
 arcpy.CheckOutExtension("spatial") # Check spatial analyst license
-
+'''
 print 'removing old temporary and output files'
 if arcpy.Exists(catchmentdir + 'catchment_merge.shp'):
     arcpy.Delete_management(catchmentdir + 'catchment_merge.shp')
@@ -58,13 +58,15 @@ if arcpy.Exists(workingdir + 'catchment_FWP.shp'):
     arcpy.Delete_management(workingdir + 'catchment_FWP.shp')
 if arcpy.Exists(workingdir + 'waterbodies_FWP.shp'):
     arcpy.Delete_management(workingdir + 'waterbodies_FWP.shp')
+    '''
 if arcpy.Exists(workingdir + 'catchment_WBclip.shp'):
     arcpy.Delete_management(workingdir + 'catchmentWBclip.shp')
+'''
 if arcpy.Exists(workingdir + 'SFR_watbodies.shp'):
     arcpy.Delete_management(workingdir + 'SFR_watbodies.shp')
 if arcpy.Exists(workingdir + 'MFgrid_watbodies.shp'):
     arcpy.Delete_management(workingdir + 'MFgrid_watbodies.shp')
-
+'''
 # preprocessing
 print 'merging NHDPlus catchment files:'
 for f in catchments:
@@ -81,35 +83,50 @@ print 'clipping catchments and waterbodies to {}'.format(MFdomain)
 arcpy.Clip_analysis(catchmentdir + 'catchment_mergeUTMft.shp', MFdomain, workingdir + 'catchment_FWP.shp')
 arcpy.Clip_analysis(waterbodies, MFdomain, workingdir + 'waterbodies_FWP.shp')
 # Clipping is not enough.  Need to isolate individual waterbodies withing each catchment
-print 'clipping catchments to waterbodies'
-arcpy.Clip_analysis(catchmentdir + 'catchment_mergeUTMft.shp', workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_WBclip.shp')
+print 'clipping waterbodies by catchments'
+arcpy.Clip_analysis(workingdir + 'waterbodies_FWP.shp', catchmentdir + 'catchment_mergeUTMft.shp', workingdir + 'WB_cmt_clip.shp')
+
+# Need to generate a unique ID that can be maintained during the spatial join b/c COMID overlaps watersheds
+print 'Creating Unique IDs'
+arcpy.AddField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', "LONG", "", "", "", "", "NULLABLE", "REQUIRED", "")
+arcpy.CalculateField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', 'FID', "PYTHON_9.3")
+'''updates = arcpy.UpdateCursor(workingdir + 'WB_cmt_clip.shp')
+i = 1
+for update in updates:
+    update.WBID = i
+    updates.updateRow(update)
+    i += 1
+# Delete cursor and row objects to remove locks on the data
+del update
+del updates
+'''
 print 'performing spatial join of catchments to SFR cells...'
-arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'catchment_WBclip.shp', workingdir + 'SFR_watbodies.shp')
+arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'WB_cmt_clip.shp', workingdir + 'SFR_watbodies.shp')
 print 'and to model grid (this may take awhile)...'
-arcpy.SpatialJoin_analysis(MFgrid, workingdir + 'catchment_WBclip.shp', workingdir + 'MFgrid_watbodies.shp')
+arcpy.SpatialJoin_analysis(MFgrid, workingdir + 'WB_cmt_clip.shp', workingdir + 'MFgrid_watbodies.shp')
 
 # now figure out which SFR segment each waterbody should drain to
 print 'reading {} into pandas dataframe...'.format(os.path.join(workingdir, 'SFR_watbodies.shp'))
 SFRwatbods = GISio.shp2df(os.path.join(workingdir, 'SFR_watbodies.shp'))
 
 print 'assigning an SFR segment to each waterbody... (this may take awhile)'
-intersected_watbods = list(np.unique(SFRwatbods.FEATUREID))
+intersected_watbods = list(np.unique(SFRwatbods.WBID))
 segments_dict = {}
 for wb in intersected_watbods:
     try:
-        segment = SFRwatbods[SFRwatbods.FEATUREID == wb].segment.mode()[0]
+        segment = SFRwatbods[SFRwatbods.WBID == wb].segment.mode()[0]
     except: # pandas crashes if mode is called on df of length 1
-        segment = SFRwatbods[SFRwatbods.FEATUREID == wb].segment[0]
+        segment = SFRwatbods[SFRwatbods.WBID == wb].segment[0]
     segments_dict[wb] = segment
     # can also use values_count() to get a frequency table for segments (reaches) in each catchment
 
 print 'building UZF package IRUNBND array from {}'.format(MFgrid)
-MFgrid_joined = GISio.shp2df(os.path.join(workingdir + 'MFgrid_watbodies.shp'), geometry=True)
+MFgrid_joined = GISio.shp2df(workingdir + 'MFgrid_watbodies.shp', geometry=True)
 MFgrid_joined.index = MFgrid_joined.node
 nrows, ncols = np.max(MFgrid_joined.row), np.max(MFgrid_joined.column)
 
 # make new column of SFR segment for each grid cell
-MFgrid_joined['segment'] = MFgrid_joined.FEATUREID.apply(segments_dict.get).fillna(0)
+MFgrid_joined['segment'] = MFgrid_joined.WBID.apply(segments_dict.get).fillna(0)
 
 print 'writing {}'.format(out_IRUNBND)
 IRUNBND = np.reshape(MFgrid_joined['segment'].sort_index().values, (nrows, ncols))
