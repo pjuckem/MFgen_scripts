@@ -84,12 +84,12 @@ arcpy.Clip_analysis(catchmentdir + 'catchment_mergeUTMft.shp', MFdomain, working
 arcpy.Clip_analysis(waterbodies, MFdomain, workingdir + 'waterbodies_FWP.shp')
 # Clipping is not enough.  Need to isolate individual waterbodies withing each catchment
 print 'clipping waterbodies by catchments'
-arcpy.Clip_analysis(workingdir + 'waterbodies_FWP.shp', catchmentdir + 'catchment_mergeUTMft.shp', workingdir + 'WB_cmt_clip.shp')
+arcpy.Clip_analysis(workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_FWP.shp', workingdir + 'WB_cmt_clip.shp')
 
 # Need to generate a unique ID that can be maintained during the spatial join b/c COMID overlaps watersheds
 print 'Creating Unique IDs'
 arcpy.AddField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', "LONG", "", "", "", "", "NULLABLE", "REQUIRED", "")
-arcpy.CalculateField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', 'FID', "PYTHON_9.3")
+arcpy.CalculateField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', '!FID! + 1', "PYTHON_9.3")
 '''updates = arcpy.UpdateCursor(workingdir + 'WB_cmt_clip.shp')
 i = 1
 for update in updates:
