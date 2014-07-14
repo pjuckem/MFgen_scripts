@@ -20,7 +20,7 @@ import sys
 GIS_utils_path = 'D:/PFJData2/Programs/GIS_utils'
 if GIS_utils_path not in sys.path:
     sys.path.append(GIS_utils_path)
-    print sys.path
+    #print sys.path
 import GISio
 import GISops
 
