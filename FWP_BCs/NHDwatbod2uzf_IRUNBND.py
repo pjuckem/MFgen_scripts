@@ -47,9 +47,9 @@ out_IRUNBND_shp = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_IRUNBND.shp
 arcpy.env.workspace = os.getcwd()
 arcpy.env.overwriteOutput = True
 arcpy.env.qualifiedFieldNames = False
-arcpy.CheckOutExtension("spatial") # Check spatial analyst license
+#arcpy.CheckOutExtension("spatial") # Check spatial analyst license
 '''
-print 'removing old temporary and output files'
+print 'removing old temporary and results files'
 if arcpy.Exists(catchmentdir + 'catchment_merge.shp'):
     arcpy.Delete_management(catchmentdir + 'catchment_merge.shp')
 if arcpy.Exists(catchmentdir + 'catchment_mergeUTMft.shp'):
@@ -58,15 +58,13 @@ if arcpy.Exists(workingdir + 'catchment_FWP.shp'):
     arcpy.Delete_management(workingdir + 'catchment_FWP.shp')
 if arcpy.Exists(workingdir + 'waterbodies_FWP.shp'):
     arcpy.Delete_management(workingdir + 'waterbodies_FWP.shp')
-    '''
 if arcpy.Exists(workingdir + 'catchment_WBclip.shp'):
-    arcpy.Delete_management(workingdir + 'catchmentWBclip.shp')
-'''
+    arcpy.Delete_management(workingdir + 'catchment_WBclip.shp')
 if arcpy.Exists(workingdir + 'SFR_watbodies.shp'):
     arcpy.Delete_management(workingdir + 'SFR_watbodies.shp')
 if arcpy.Exists(workingdir + 'MFgrid_watbodies.shp'):
     arcpy.Delete_management(workingdir + 'MFgrid_watbodies.shp')
-'''
+
 # preprocessing
 print 'merging NHDPlus catchment files:'
 for f in catchments:
@@ -82,28 +80,27 @@ arcpy.Project_management(catchmentdir + 'catchment_merge.shp', catchmentdir + 'c
 print 'clipping catchments and waterbodies to {}'.format(MFdomain)
 arcpy.Clip_analysis(catchmentdir + 'catchment_mergeUTMft.shp', MFdomain, workingdir + 'catchment_FWP.shp')
 arcpy.Clip_analysis(waterbodies, MFdomain, workingdir + 'waterbodies_FWP.shp')
-# Clipping is not enough.  Need to isolate individual waterbodies withing each catchment
+# Clipping is not enough.  Need to isolate individual waterbodies within each catchment
 print 'clipping waterbodies by catchments'
-arcpy.Clip_analysis(workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_FWP.shp', workingdir + 'WB_cmt_clip.shp')
+arcpy.Intersect_analysis([workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_FWP.shp'], workingdir + 'WB_cmt_clip.shp')
+# arcpy.Clip_analysis(workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_FWP.shp', workingdir + 'WB_cmt_clip.shp') Only clips perimeter, not interior catchments -- odd.
 
 # Need to generate a unique ID that can be maintained during the spatial join b/c COMID overlaps watersheds
 print 'Creating Unique IDs'
 arcpy.AddField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', "LONG", "", "", "", "", "NULLABLE", "REQUIRED", "")
 arcpy.CalculateField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', '!FID! + 1', "PYTHON_9.3")
-'''updates = arcpy.UpdateCursor(workingdir + 'WB_cmt_clip.shp')
-i = 1
-for update in updates:
-    update.WBID = i
-    updates.updateRow(update)
-    i += 1
-# Delete cursor and row objects to remove locks on the data
-del update
-del updates
-'''
+
 print 'performing spatial join of catchments to SFR cells...'
 arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'WB_cmt_clip.shp', workingdir + 'SFR_watbodies.shp')
+'''
+
 print 'and to model grid (this may take awhile)...'
-arcpy.SpatialJoin_analysis(MFgrid, workingdir + 'WB_cmt_clip.shp', workingdir + 'MFgrid_watbodies.shp')
+#arcpy.SpatialJoin_analysis(MFgrid, workingdir + 'WB_cmt_clip.shp', workingdir + 'MFgrid_watbodies.shp')
+# Currently taking >24 hrs.
+# Might try an intersection instead, as intersection takes advantage of tiling (splitting into smaller subsets)
+# Intersecting will retain all attributes, but it will discard cells that don't overlap with waterbodies, which seems OK
+arcpy.Intersect_analysis([MFgrid, workingdir + 'WB_cmt_clip.shp'], workingdir + 'MFgrid_watbodies.shp')
+
 
 # now figure out which SFR segment each waterbody should drain to
 print 'reading {} into pandas dataframe...'.format(os.path.join(workingdir, 'SFR_watbodies.shp'))
@@ -135,13 +132,13 @@ np.savetxt(out_IRUNBND, IRUNBND, fmt='%i', delimiter=' ')
 print 'writing {}'.format(out_IRUNBND_shp)
 #df, shpname, geo_column, prj
 GISio.df2shp(MFgrid_joined,
-             os.path.join(workingdir + 'MFgrid_segments.shp'),
+             os.path.join(workingdir + 'UZF_segments.shp'),
              'geometry',
              os.path.join(workingdir + 'MFgrid_watbodies.shp')[:-4]+'.prj')
 
 MFgrid_joined_dissolved = GISops.dissolve_df(MFgrid_joined, 'segment')
 # crashing here -- need to figure out why ('geometry' = key_error)
 GISio.df2shp(MFgrid_joined_dissolved,
-             os.path.join(workingdir + 'MFgrid_segments_dissolved.shp'),
+             os.path.join(workingdir + 'UZF_segments_dissolved.shp'),
              'geometry',
              os.path.join(workingdir + 'MFgrid_watbodies.shp')[:-4]+'.prj')
