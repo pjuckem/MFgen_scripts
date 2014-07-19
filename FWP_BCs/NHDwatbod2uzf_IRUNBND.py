@@ -34,6 +34,7 @@ waterbodies = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/NHDPlusV21FWP/NHDWaterb
 # input shapefile (should all be in same projection!)
 MFdomain = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_domain_UTMft.shp'
 MFgrid = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_grid1000_UTMft.shp'
+MFnodes = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_nodes1000_UTMft.shp'
 SFR_shapefile = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/SFR_AndyFix/SFR_cellinfo_FWPvert1000ft.shp'
 # temporary directories
 catchmentdir = 'D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/'
@@ -94,13 +95,13 @@ print 'performing spatial join of catchments to SFR cells...'
 arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'WB_cmt_clip.shp', workingdir + 'SFR_watbodies.shp')
 '''
 
-print 'and to model grid (this may take awhile)...'
+#print 'and to model grid (this may take awhile)...'
 #arcpy.SpatialJoin_analysis(MFgrid, workingdir + 'WB_cmt_clip.shp', workingdir + 'MFgrid_watbodies.shp')
-# Currently taking >24 hrs.
+# Currently taking 48 hrs.
 # Might try an intersection instead, as intersection takes advantage of tiling (splitting into smaller subsets)
 # Intersecting will retain all attributes, but it will discard cells that don't overlap with waterbodies, which seems OK
-arcpy.Intersect_analysis([MFgrid, workingdir + 'WB_cmt_clip.shp'], workingdir + 'MFgrid_watbodies.shp')
-
+print 'Intersecting model nodes with waterbodies'
+arcpy.Intersect_analysis([MFnodes, workingdir + 'WB_cmt_clip.shp'], workingdir + 'MFnodes_watbodies.shp')
 
 # now figure out which SFR segment each waterbody should drain to
 print 'reading {} into pandas dataframe...'.format(os.path.join(workingdir, 'SFR_watbodies.shp'))
@@ -117,28 +118,30 @@ for wb in intersected_watbods:
     segments_dict[wb] = segment
     # can also use values_count() to get a frequency table for segments (reaches) in each catchment
 
-print 'building UZF package IRUNBND array from {}'.format(MFgrid)
-MFgrid_joined = GISio.shp2df(workingdir + 'MFgrid_watbodies.shp', geometry=True)
-MFgrid_joined.index = MFgrid_joined.node
-nrows, ncols = np.max(MFgrid_joined.row), np.max(MFgrid_joined.column)
+print 'building UZF package IRUNBND array from {}'.format(MFnodes)
+MFnodes_joined = GISio.shp2df(workingdir + 'MFnodes_watbodies.shp', geometry=True)
+MFnodes_joined.index = MFnodes_joined.node
+nrows, ncols = np.max(MFnodes_joined.row), np.max(MFnodes_joined.column)
 
 # make new column of SFR segment for each grid cell
-MFgrid_joined['segment'] = MFgrid_joined.WBID.apply(segments_dict.get).fillna(0)
+MFnodes_joined['segment'] = MFnodes_joined.WBID.apply(segments_dict.get).fillna(0)
 
 print 'writing {}'.format(out_IRUNBND)
-IRUNBND = np.reshape(MFgrid_joined['segment'].sort_index().values, (nrows, ncols))
+IRUNBND = np.zeros_like(MFnodes)
+# need some way to change zeros to segment values.
+IRUNBND = np.reshape(MFnodes_joined['segment'].sort_index().values, (nrows, ncols))
 np.savetxt(out_IRUNBND, IRUNBND, fmt='%i', delimiter=' ')
 
 print 'writing {}'.format(out_IRUNBND_shp)
 #df, shpname, geo_column, prj
-GISio.df2shp(MFgrid_joined,
+GISio.df2shp(MFnodes_joined,
              os.path.join(workingdir + 'UZF_segments.shp'),
              'geometry',
-             os.path.join(workingdir + 'MFgrid_watbodies.shp')[:-4]+'.prj')
+             os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
 
-MFgrid_joined_dissolved = GISops.dissolve_df(MFgrid_joined, 'segment')
+MFnodes_joined_dissolved = GISops.dissolve_df(MFnodes_joined, 'segment')
 # crashing here -- need to figure out why ('geometry' = key_error)
-GISio.df2shp(MFgrid_joined_dissolved,
+GISio.df2shp(MFnodes_joined_dissolved,
              os.path.join(workingdir + 'UZF_segments_dissolved.shp'),
              'geometry',
-             os.path.join(workingdir + 'MFgrid_watbodies.shp')[:-4]+'.prj')
+             os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
