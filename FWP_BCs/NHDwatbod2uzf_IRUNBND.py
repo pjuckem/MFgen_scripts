@@ -91,9 +91,9 @@ print 'Creating Unique IDs'
 arcpy.AddField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', "LONG", "", "", "", "", "NULLABLE", "REQUIRED", "")
 arcpy.CalculateField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', '!FID! + 1', "PYTHON_9.3")
 
-print 'performing spatial join of catchments to SFR cells...'
+print 'performing spatial join of waterbodies to SFR cells...'
 arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'WB_cmt_clip.shp', workingdir + 'SFR_watbodies.shp')
-'''
+
 
 #print 'and to model grid (this may take awhile)...'
 #arcpy.SpatialJoin_analysis(MFgrid, workingdir + 'WB_cmt_clip.shp', workingdir + 'MFgrid_watbodies.shp')
@@ -102,6 +102,7 @@ arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'WB_cmt_clip.shp', workin
 # Intersecting will retain all attributes, but it will discard cells that don't overlap with waterbodies, which seems OK
 print 'Intersecting model nodes with waterbodies'
 arcpy.Intersect_analysis([MFnodes, workingdir + 'WB_cmt_clip.shp'], workingdir + 'MFnodes_watbodies.shp')
+'''
 
 # now figure out which SFR segment each waterbody should drain to
 print 'reading {} into pandas dataframe...'.format(os.path.join(workingdir, 'SFR_watbodies.shp'))
@@ -119,29 +120,59 @@ for wb in intersected_watbods:
     # can also use values_count() to get a frequency table for segments (reaches) in each catchment
 
 print 'building UZF package IRUNBND array from {}'.format(MFnodes)
-MFnodes_joined = GISio.shp2df(workingdir + 'MFnodes_watbodies.shp', geometry=True)
-MFnodes_joined.index = MFnodes_joined.node
-nrows, ncols = np.max(MFnodes_joined.row), np.max(MFnodes_joined.column)
+# get dimensions of grid and compute unique cell ID
+MFnodesDF = GISio.shp2df(MFnodes)
+nrows, ncols = np.max(MFnodesDF.row), np.max(MFnodesDF.column)
+MFnodesDF['cellnum'] = (MFnodesDF.row-1)*ncols + MFnodesDF.column  # as per SFRmaker algorithm line 297 of SFR_plots.py
+
+MFnodes_watbod = GISio.shp2df(os.path.join(workingdir + 'MFnodes_watbodies.shp'), geometry=True)
+MFnodes_watbod['cellnum'] = (MFnodes_watbod.row-1)*ncols + MFnodes_watbod.column
+MFnodes_watbod.index = MFnodes_watbod.cellnum
+# nrows, ncols = np.max(MFnodes_watbod.row), np.max(MFnodes_watbod.column)
+# nrows, ncols = np.max(MFnodes.row), np.max(MFnodes.column)
+
+# make new column of SFR segment for each waterbody
+# Uses the WBID-to-Segments dictionary from SFRwaterbods and applies it to MFnodes_watbodies.shp
+# That is, it assigns segments to the rest of the water body area (all nodes that intersected the waterbody)
+MFnodes_watbod['segment'] = MFnodes_watbod.WBID.apply(segments_dict.get).fillna(0)
+
+print 'assigning an SFR segment to each node of the model... (this may take awhile)'
+cellnumbers = list(np.unique(MFnodes_watbod.cellnum))
+cellnum_dict = {}
+for cn in cellnumbers:
+    try:
+        segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment.mode()[0]
+    except: # pandas crashes if mode is called on df of length 1
+        segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment[0]
+    cellnum_dict[cn] = segment
 
 # make new column of SFR segment for each grid cell
-MFnodes_joined['segment'] = MFnodes_joined.WBID.apply(segments_dict.get).fillna(0)
+# Uses the cellnum-to-Segments dictionary from MFnodes_watbodies.shp and applies it to MFnodes (array of every node for the model)
+# That is, it assigns segments to all model nodes that were connected previously
+# fills with zero if no match found
+MFnodesDF['segment'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
 
 print 'writing {}'.format(out_IRUNBND)
-IRUNBND = np.zeros_like(MFnodes)
+#IRUNBND = np.zeros_like(MFnodes)
 # need some way to change zeros to segment values.
-IRUNBND = np.reshape(MFnodes_joined['segment'].sort_index().values, (nrows, ncols))
+IRUNBND = np.reshape(MFnodesDF['segment'].sort_index().values, (nrows, ncols))
+IRUNBND.astype(int)
 np.savetxt(out_IRUNBND, IRUNBND, fmt='%i', delimiter=' ')
 
 print 'writing {}'.format(out_IRUNBND_shp)
 #df, shpname, geo_column, prj
-GISio.df2shp(MFnodes_joined,
+GISio.df2shp(MFnodes_watbod,
              os.path.join(workingdir + 'UZF_segments.shp'),
              'geometry',
              os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
 
-MFnodes_joined_dissolved = GISops.dissolve_df(MFnodes_joined, 'segment')
+MFnodes_watbod_dissolved = GISops.dissolve_df(MFnodes_watbod, 'segment')
 # crashing here -- need to figure out why ('geometry' = key_error)
-GISio.df2shp(MFnodes_joined_dissolved,
+#GISio.df2shp(MFnodes_watbod_dissolved,
+#             os.path.join(workingdir + 'UZF_segments_dissolved.shp'),
+#             'geometry',
+#             os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
+GISio.df2shp(MFnodes_watbod_dissolved,
              os.path.join(workingdir + 'UZF_segments_dissolved.shp'),
-             'geometry',
+             '',
              os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
