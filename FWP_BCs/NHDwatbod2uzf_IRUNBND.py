@@ -77,7 +77,7 @@ else:
 
 print '\nreprojecting to {}.prj'.format(SFR_shapefile[:-4])
 arcpy.Project_management(catchmentdir + 'catchment_merge.shp', catchmentdir + 'catchment_mergeUTMft.shp', SFR_shapefile[:-4] + '.prj')
-
+'''
 print 'clipping catchments and waterbodies to {}'.format(MFdomain)
 arcpy.Clip_analysis(catchmentdir + 'catchment_mergeUTMft.shp', MFdomain, workingdir + 'catchment_FWP.shp')
 arcpy.Clip_analysis(waterbodies, MFdomain, workingdir + 'waterbodies_FWP.shp')
@@ -93,7 +93,8 @@ arcpy.CalculateField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', '!FID! +
 
 print 'performing spatial join of waterbodies to SFR cells...'
 arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'WB_cmt_clip.shp', workingdir + 'SFR_watbodies.shp')
-
+# Note: Spatial join is set as one-to-one, so some water bodies are being left behind and not routing to SFR segments.
+# Need to change this to a one-to-many join (or an intersect), but then have to figure out how to handle this below.
 
 #print 'and to model grid (this may take awhile)...'
 #arcpy.SpatialJoin_analysis(MFgrid, workingdir + 'WB_cmt_clip.shp', workingdir + 'MFgrid_watbodies.shp')
@@ -102,7 +103,7 @@ arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'WB_cmt_clip.shp', workin
 # Intersecting will retain all attributes, but it will discard cells that don't overlap with waterbodies, which seems OK
 print 'Intersecting model nodes with waterbodies'
 arcpy.Intersect_analysis([MFnodes, workingdir + 'WB_cmt_clip.shp'], workingdir + 'MFnodes_watbodies.shp')
-'''
+
 
 # now figure out which SFR segment each waterbody should drain to
 print 'reading {} into pandas dataframe...'.format(os.path.join(workingdir, 'SFR_watbodies.shp'))
@@ -113,8 +114,9 @@ intersected_watbods = list(np.unique(SFRwatbods.WBID))
 segments_dict = {}
 for wb in intersected_watbods:
     try:
+        # if one waterbody intersected multiple segments, select the most common (mode) segment
         segment = SFRwatbods[SFRwatbods.WBID == wb].segment.mode()[0]
-    except: # pandas crashes if mode is called on df of length 1
+    except: # pandas crashes if mode is called on df of length 1 or 2
         segment = SFRwatbods[SFRwatbods.WBID == wb].segment[0]
     segments_dict[wb] = segment
     # can also use values_count() to get a frequency table for segments (reaches) in each catchment
@@ -141,9 +143,12 @@ cellnumbers = list(np.unique(MFnodes_watbod.cellnum))
 cellnum_dict = {}
 for cn in cellnumbers:
     try:
+        # if multiple segments per cellnum, select the most common (mode)
         segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment.mode()[0]
-    except:  # pandas crashes if mode is called on df of length 1
+        segment = int(segment)
+    except:  # pandas crashes if mode is called on df of length 1 or 2
         segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment[0]
+        segment = int(segment.max()) # when cellnums have 2 segments. This selects the most downstream Seg and converts to int
     cellnum_dict[cn] = segment
 
 # make new column of SFR segment for each grid cell
@@ -156,7 +161,8 @@ print 'writing {}'.format(out_IRUNBND)
 #IRUNBND = np.zeros_like(MFnodes)
 # need some way to change zeros to segment values.
 IRUNBND = np.reshape(MFnodesDF['segment'].sort_index().values, (nrows, ncols))
-IRUNBND.astype(int)
+# IRUNBND mus not be a uniform array...
+#IRUNBND = IRUNBND.astype(np.int, copy=False)
 np.savetxt(out_IRUNBND, IRUNBND, fmt='%i', delimiter=' ')
 
 print 'writing {}'.format(out_IRUNBND_shp)
@@ -166,13 +172,13 @@ GISio.df2shp(MFnodes_watbod,
              'geometry',
              os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
 
-MFnodes_watbod_dissolved = GISops.dissolve_df(MFnodes_watbod, 'segment')
+#MFnodes_watbod_dissolved = GISops.dissolve_df(MFnodes_watbod, 'segment')
 # crashing here -- need to figure out why ('geometry' = key_error)
 #GISio.df2shp(MFnodes_watbod_dissolved,
 #             os.path.join(workingdir + 'UZF_segments_dissolved.shp'),
 #             'geometry',
 #             os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
-GISio.df2shp(MFnodes_watbod_dissolved,
-             os.path.join(workingdir + 'UZF_segments_dissolved.shp'),
-             '',
-             os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
+#GISio.df2shp(MFnodes_watbod_dissolved,
+#             os.path.join(workingdir + 'UZF_segments_dissolved.shp'),
+#             'shape',
+#             os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
