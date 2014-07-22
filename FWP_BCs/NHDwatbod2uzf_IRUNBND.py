@@ -77,14 +77,15 @@ else:
 
 print '\nreprojecting to {}.prj'.format(SFR_shapefile[:-4])
 arcpy.Project_management(catchmentdir + 'catchment_merge.shp', catchmentdir + 'catchment_mergeUTMft.shp', SFR_shapefile[:-4] + '.prj')
-'''
+
 print 'clipping catchments and waterbodies to {}'.format(MFdomain)
 arcpy.Clip_analysis(catchmentdir + 'catchment_mergeUTMft.shp', MFdomain, workingdir + 'catchment_FWP.shp')
 arcpy.Clip_analysis(waterbodies, MFdomain, workingdir + 'waterbodies_FWP.shp')
-# Clipping is not enough.  Need to isolate individual waterbodies within each catchment
+
+# Now isolate individual waterbodies within each catchment
 print 'clipping waterbodies by catchments'
 arcpy.Intersect_analysis([workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_FWP.shp'], workingdir + 'WB_cmt_clip.shp')
-# arcpy.Clip_analysis(workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_FWP.shp', workingdir + 'WB_cmt_clip.shp') Only clips perimeter, not interior catchments -- odd.
+# Note: arcpy.Clip_analysis(workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_FWP.shp', workingdir + 'WB_cmt_clip.shp') only clips perimeter, not interior catchments -- odd.
 
 # Need to generate a unique ID that can be maintained during the spatial join b/c COMID overlaps watersheds
 print 'Creating Unique IDs'
@@ -92,18 +93,27 @@ arcpy.AddField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', "LONG", "", ""
 arcpy.CalculateField_management(workingdir + 'WB_cmt_clip.shp', 'WBID', '!FID! + 1', "PYTHON_9.3")
 
 print 'performing spatial join of waterbodies to SFR cells...'
-arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'WB_cmt_clip.shp', workingdir + 'SFR_watbodies.shp')
-# Note: Spatial join is set as one-to-one, so some water bodies are being left behind and not routing to SFR segments.
+#arcpy.SpatialJoin_analysis(SFR_shapefile, workingdir + 'WB_cmt_clip.shp', workingdir + 'SFR_watbodies.shp')
+# Note: Spatial join is currently set as one-to-one, so some water bodies are being left behind and not routing to SFR segments.
 # Need to change this to a one-to-many join (or an intersect), but then have to figure out how to handle this below.
+# An intersect is equivalent to a Spatial Join that used Join_one_to_many and Keep_Common....but Intersect is much faster
+arcpy.Intersect_analysis([SFR_shapefile, workingdir + 'WB_cmt_clip.shp'], workingdir + 'SFR_watbodies.shp')
 
-#print 'and to model grid (this may take awhile)...'
+# Stopped using MFgrid because doing so expanded the area of the waterbodies -- not good.
 #arcpy.SpatialJoin_analysis(MFgrid, workingdir + 'WB_cmt_clip.shp', workingdir + 'MFgrid_watbodies.shp')
-# Currently taking 48 hrs.
-# Might try an intersection instead, as intersection takes advantage of tiling (splitting into smaller subsets)
-# Intersecting will retain all attributes, but it will discard cells that don't overlap with waterbodies, which seems OK
+# SpatialJoin currently takes >48 hrs for FWP model grid.  Intersecting is much quicker, but is a one-to-many spatial join
+# and also envokes "keep_common", meaning that nodes that don't intersect waterbodies will be dropped -- handle this later.
+
 print 'Intersecting model nodes with waterbodies'
 arcpy.Intersect_analysis([MFnodes, workingdir + 'WB_cmt_clip.shp'], workingdir + 'MFnodes_watbodies.shp')
-
+# Note: Intersecting nodes prevents the artificial growth of waterbodies that occurs with intersecting grids (cell is
+# either a UZF cell or it is not). However, it would be better to intersect the grid and then evaluate whether the
+# intersected area is >50% of the cell area.  This would be less susceptable to "meanders" of the WB outline shape.
+# Something for version 2....
+'''
+# #########
+# all shapefiles are now created, so can comment out the above code if simply need to re-process the shapefiles for output.
+# #########
 
 # now figure out which SFR segment each waterbody should drain to
 print 'reading {} into pandas dataframe...'.format(os.path.join(workingdir, 'SFR_watbodies.shp'))
@@ -114,28 +124,27 @@ intersected_watbods = list(np.unique(SFRwatbods.WBID))
 segments_dict = {}
 for wb in intersected_watbods:
     try:
-        # if one waterbody intersected multiple segments, select the most common (mode) segment
+        # if one waterbody intersected multiple segment reaches, select the most common (mode) segment
         segment = SFRwatbods[SFRwatbods.WBID == wb].segment.mode()[0]
     except: # pandas crashes if mode is called on df of length 1 or 2
         segment = SFRwatbods[SFRwatbods.WBID == wb].segment[0]
     segments_dict[wb] = segment
     # can also use values_count() to get a frequency table for segments (reaches) in each catchment
 
-print 'building UZF package IRUNBND array from {}'.format(MFnodes)
+print 'Dimensioning arrays to match {}'.format(MFnodes)
 # get dimensions of grid and compute unique cell ID
 MFnodesDF = GISio.shp2df(MFnodes)
 nrows, ncols = np.max(MFnodesDF.row), np.max(MFnodesDF.column)
 MFnodesDF['cellnum'] = (MFnodesDF.row-1)*ncols + MFnodesDF.column  # as per SFRmaker algorithm line 297 of SFR_plots.py
 
+print 'Linking the rest of each water body that did not directly overlap an SFR cell to the appropriate SFR segment'
 MFnodes_watbod = GISio.shp2df(os.path.join(workingdir + 'MFnodes_watbodies.shp'), geometry=True)
 MFnodes_watbod['cellnum'] = (MFnodes_watbod.row-1)*ncols + MFnodes_watbod.column
-MFnodes_watbod.index = MFnodes_watbod.node
-# nrows, ncols = np.max(MFnodes_watbod.row), np.max(MFnodes_watbod.column)
-# nrows, ncols = np.max(MFnodes.row), np.max(MFnodes.column)
+#MFnodes_watbod.index = MFnodes_watbod.node
 
 # make new column of SFR segment for each waterbody
 # Uses the WBID-to-Segments dictionary from SFRwaterbods and applies it to MFnodes_watbodies.shp
-# That is, it assigns segments to the rest of the water body area (all nodes that intersected the waterbody)
+# That is, it assigns segments to the rest of the water body area (all model nodes that intersected the waterbody)
 MFnodes_watbod['segment'] = MFnodes_watbod.WBID.apply(segments_dict.get).fillna(0)
 
 print 'assigning an SFR segment to each node of the model... (this may take awhile)'
@@ -158,18 +167,13 @@ for cn in cellnumbers:
 MFnodesDF['segment'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
 
 print 'writing {}'.format(out_IRUNBND)
-#IRUNBND = np.zeros_like(MFnodes)
-# need some way to change zeros to segment values.
 IRUNBND = np.reshape(MFnodesDF['segment'].sort_index().values, (nrows, ncols))
-# IRUNBND mus not be a uniform array...
-#IRUNBND = IRUNBND.astype(np.int, copy=False)
 np.savetxt(out_IRUNBND, IRUNBND, fmt='%i', delimiter=' ')
+# Note, this ascii array still print out incorrectly due to indexing of the dataframe.  Testing different indexing methods
 
-print 'writing {}'.format(out_IRUNBND_shp)
+#print 'writing {}'.format(out_IRUNBND_shp)
 #df, shpname, geo_column, prj
-GISio.df2shp(MFnodes_watbod,
-             os.path.join(workingdir + 'UZF_segments.shp'),
-             'geometry',
+GISio.df2shp(MFnodes_watbod, out_IRUNBND_shp, 'geometry',
              os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
 
 #MFnodes_watbod_dissolved = GISops.dissolve_df(MFnodes_watbod, 'segment')
