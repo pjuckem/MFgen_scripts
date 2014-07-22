@@ -127,7 +127,7 @@ MFnodesDF['cellnum'] = (MFnodesDF.row-1)*ncols + MFnodesDF.column  # as per SFRm
 
 MFnodes_watbod = GISio.shp2df(os.path.join(workingdir + 'MFnodes_watbodies.shp'), geometry=True)
 MFnodes_watbod['cellnum'] = (MFnodes_watbod.row-1)*ncols + MFnodes_watbod.column
-MFnodes_watbod.index = MFnodes_watbod.cellnum
+MFnodes_watbod.index = MFnodes_watbod.node
 # nrows, ncols = np.max(MFnodes_watbod.row), np.max(MFnodes_watbod.column)
 # nrows, ncols = np.max(MFnodes.row), np.max(MFnodes.column)
 
@@ -142,7 +142,7 @@ cellnum_dict = {}
 for cn in cellnumbers:
     try:
         segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment.mode()[0]
-    except: # pandas crashes if mode is called on df of length 1
+    except:  # pandas crashes if mode is called on df of length 1
         segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment[0]
     cellnum_dict[cn] = segment
 
