@@ -167,9 +167,9 @@ for cn in cellnumbers:
 MFnodesDF['segment'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
 
 print 'writing {}'.format(out_IRUNBND)
-IRUNBND = np.reshape(MFnodesDF['segment'].sort_index().values, (nrows, ncols))
+MFnodesDF.sort(columns = 'cellnum', inplace = True)
+IRUNBND = np.reshape(MFnodesDF['segment'].values, (nrows, ncols))
 np.savetxt(out_IRUNBND, IRUNBND, fmt='%i', delimiter=' ')
-# Note, this ascii array still print out incorrectly due to indexing of the dataframe.  Testing different indexing methods
 
 #print 'writing {}'.format(out_IRUNBND_shp)
 #df, shpname, geo_column, prj
