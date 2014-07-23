@@ -103,14 +103,15 @@ arcpy.Intersect_analysis([SFR_shapefile, workingdir + 'WB_cmt_clip.shp'], workin
 #arcpy.SpatialJoin_analysis(MFgrid, workingdir + 'WB_cmt_clip.shp', workingdir + 'MFgrid_watbodies.shp')
 # SpatialJoin currently takes >48 hrs for FWP model grid.  Intersecting is much quicker, but is a one-to-many spatial join
 # and also envokes "keep_common", meaning that nodes that don't intersect waterbodies will be dropped -- handle this later.
-
+'''
 print 'Intersecting model nodes with waterbodies'
 arcpy.Intersect_analysis([MFnodes, workingdir + 'WB_cmt_clip.shp'], workingdir + 'MFnodes_watbodies.shp')
 # Note: Intersecting nodes prevents the artificial growth of waterbodies that occurs with intersecting grids (cell is
-# either a UZF cell or it is not). However, it would be better to intersect the grid and then evaluate whether the
-# intersected area is >50% of the cell area.  This would be less susceptable to "meanders" of the WB outline shape.
-# Something for version 2....
-'''
+# either a UZF cell or it is not). Attempts were made to intersect the grid and then evaluate whether the
+# intersected cell area was >X% (eg, 50%) of the cell area.  This seemeded better in some cases (narrow "meanders"), but
+# then lead to some holes in major lakes, such as Winnebago, due to how the catchments intersected the waterbodies.
+# In the end , intersecting nodes seemed most robust.
+
 # #########
 # all shapefiles are now created, so can comment out the above code if simply need to re-process the shapefiles for output.
 # #########
@@ -140,7 +141,6 @@ MFnodesDF['cellnum'] = (MFnodesDF.row-1)*ncols + MFnodesDF.column  # as per SFRm
 print 'Linking the rest of each water body that did not directly overlap an SFR cell to the appropriate SFR segment'
 MFnodes_watbod = GISio.shp2df(os.path.join(workingdir + 'MFnodes_watbodies.shp'), geometry=True)
 MFnodes_watbod['cellnum'] = (MFnodes_watbod.row-1)*ncols + MFnodes_watbod.column
-#MFnodes_watbod.index = MFnodes_watbod.node
 
 # make new column of SFR segment for each waterbody
 # Uses the WBID-to-Segments dictionary from SFRwaterbods and applies it to MFnodes_watbodies.shp
@@ -160,10 +160,9 @@ for cn in cellnumbers:
         segment = int(segment.max()) # when cellnums have 2 segments. This selects the most downstream Seg and converts to int
     cellnum_dict[cn] = segment
 
-# make new column of SFR segment for each grid cell
+# make new column of SFR segment for each grid node
 # Uses the cellnum-to-Segments dictionary from MFnodes_watbodies.shp and applies it to MFnodes (array of every node for the model)
-# That is, it assigns segments to all model nodes that were connected previously
-# fills with zero if no match found
+# That is, it assigns segments to all model nodes that were connected previously and fills with zero if no match found
 MFnodesDF['segment'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
 
 print 'writing {}'.format(out_IRUNBND)
@@ -186,3 +185,31 @@ GISio.df2shp(MFnodes_watbod, out_IRUNBND_shp, 'geometry',
 #             os.path.join(workingdir + 'UZF_segments_dissolved.shp'),
 #             'shape',
 #             os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
+
+
+# unused code:
+#arcpy.Intersect_analysis([MFgrid, workingdir + 'WB_cmt_clip.shp'], workingdir + 'MFgrid_watbodies.shp')
+#arcpy.CalculateAreas_stats(workingdir + 'MFgrid_watbodies.shp', workingdir + 'MFnodes_watbodies.shp')
+
+#cellarea = np.max(MFnodes_watbod.F_AREA)
+#keep = MFnodes_watbod['F_AREA'] > (cellarea * 0.5)
+#MFnodes_watbod = MFnodes_watbod[keep]
+
+# Notes:
+# Do we need to remove UZF cells that overlap SFR cells?  No, removing these cells would reduce the amount of
+# 'potential recharge' applied to the model apriori.  Even if all the recharge is re-discharged, it doesn't matter if
+# it is discharged to a SFR or UZF cell as they're routed together.  Only remove them if causes instability.  It shouldn't,
+# as SFR cells should have lower Stops then the land surface used for UZF b/c SFR drills deeper to enforce down-stream
+# slopes, and b/c the top of the model, which UZF relies upon was generated as the mean of the DEM, which seems
+# appropriate for minimizing bias.
+
+# To Do:
+# 1. Write IUZFBND array of active/in active UZF cells.  Double check that this does not determine whetheor not
+# recharge is applied.
+# 2. Generate the recharge array. It should replace the RCH package. Where known Lakes occur, the recharge value
+# should equal precipitation minus evaporation (farnsworth?).  Stick with estimated recharge for wetlands because
+# with out additional information, it is not possible to know whether they are GW discharge or GW recharge areas.
+# 3. Generate a USF file that reads in each of the arrays by name.
+# 4.  Switch to using XML input files.
+# 5. Consider plotting some of the arrays rather than writing shapefiles. For example, the original problem with the
+# IRUNBND array would have been detected earlier had it been plotted with matplotlib.
