@@ -1,7 +1,8 @@
 __author__ = 'pfjuckem, aleaf'
 '''
-Route MODFLOW UZF Package groundwater discharge at waterbodies to SFR segments, using catchment info from NHDplus v2
-inputs:
+Route MODFLOW UZF Package groundwater discharge at waterbodies to SFR segments, using catchment info from NHDplus v2,
+then generate a UZF file for input to MF.
+Inputs:
 NHDPlus v2 waterbody files (e.g. NHDPlusV21_GL_04_NHDPlusCatchments_05.7z; available from http://www.horizon-systems.com/NHDPlus/NHDPlusV2_04.php)
 shapefiles of model grid cells, model domain, and SFR cells (all in same projection)
 
@@ -17,6 +18,7 @@ import numpy as np
 import arcpy
 import os
 import sys
+from geopandas import GeoDataFrame
 GIS_utils_path = 'D:/PFJData2/Programs/GIS_utils'
 if GIS_utils_path not in sys.path:
     sys.path.append(GIS_utils_path)
@@ -36,6 +38,12 @@ MFdomain = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_domain_UTMft.shp'
 MFgrid = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_grid1000_UTMft.shp'
 MFnodes = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_nodes1000_UTMft.shp'
 SFR_shapefile = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/SFR_AndyFix/SFR_cellinfo_FWPvert1000ft.shp'
+recharge = 0.002 # nice round number; 8.77 in/yr, which seems OK for this area.
+precip = 0.007301 # 32 in/yr; common # used for WI
+evaporation = 0.006845 # 30 in/yr ; rough average from Farnsworth, 1970s
+ghbfile = 'D:/ATLData/BadRiver/Calibration_runs/Opt7c/ghb.tpl'
+SFRmat1 = 'D:/ATLData/Documents/GitHub/SFR/Mat1_with_new_streams.csv'
+
 # temporary directories
 catchmentdir = 'D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/'
 workingdir = "D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/"
@@ -43,12 +51,18 @@ workingdir = "D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/"
 # output
 out_IRUNBND = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_IRUNBND.dat'
 out_IRUNBND_shp = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_IRUNBND.shp'
+out_FINF = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_FINF.dat'
 
 # initialize the arcpy environment
 arcpy.env.workspace = os.getcwd()
 arcpy.env.overwriteOutput = True
 arcpy.env.qualifiedFieldNames = False
 #arcpy.CheckOutExtension("spatial") # Check spatial analyst license
+
+def get_cellnum(r, c, nrows=nrows, ncols=ncols):
+    cellnum = (r-1) * ncols + c
+    return cellnum
+
 '''
 print 'removing old temporary and results files'
 if arcpy.Exists(catchmentdir + 'catchment_merge.shp'):
@@ -125,7 +139,7 @@ for wb in intersected_watbods:
 
 print 'Dimensioning arrays to match {}'.format(MFnodes)
 # get dimensions of grid and compute unique cell ID
-MFnodesDF = GISio.shp2df(MFnodes)
+MFnodesDF = GISio.shp2df(MFnodes, geometry=True)
 nrows, ncols = np.max(MFnodesDF.row), np.max(MFnodesDF.column)
 MFnodesDF['cellnum'] = (MFnodesDF.row-1)*ncols + MFnodesDF.column  # as per SFRmaker algorithm line 297 of SFR_plots.py
 
@@ -138,9 +152,11 @@ MFnodes_watbod['cellnum'] = (MFnodes_watbod.row-1)*ncols + MFnodes_watbod.column
 # That is, it assigns segments to the rest of the water body area (all model nodes that intersected the waterbody).
 MFnodes_watbod['segment'] = MFnodes_watbod.WBID.apply(segments_dict.get).fillna(0)
 
-print 'assigning an SFR segment to each node of the model... (this may take awhile)'
+print 'Distinguishing between lakes and wetlands, and assigning and SFR segment to each node of the model... ' \
+      '(this may take awhile)'
 cellnumbers = list(np.unique(MFnodes_watbod.cellnum))
 cellnum_dict = {}
+WBtype_dict = {}
 for cn in cellnumbers:
     try:
         # if multiple segments per cellnum, select the most common (mode)
@@ -150,20 +166,49 @@ for cn in cellnumbers:
         segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment[0]
         segment = int(segment.max()) # when cellnums have 2 segments. This selects the most downstream Seg and converts to int.
     cellnum_dict[cn] = segment
+    # setup the recharge array (FINF)
+    WBtype = MFnodes_watbod[MFnodes_watbod.cellnum == cn].FTYPE[0]
+    WBtype_dict[cn] = WBtype
+
 
 # Make new column of SFR segment for each grid node.
 # Uses the cellnum-to-segments dictionary from MFnodes_watbodies.shp and applies it to MFnodes (array of every node for the model).
 # That is, it assigns segments to all model nodes that were connected previously and fills with zero if no match found.
 MFnodesDF['segment'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
+MFnodesDF['WBtype'] = MFnodesDF.cellnum.apply(WBtype_dict.get).fillna('Land')
+# assign recharge ('FINF') based on water body type (open water = P-E)
+MFnodesDF['Recharge'] = MFnodesDF.WBtype.replace(['LakePond', 'Reservoir', 'Land', 'SwampMarsh'],
+                                                 [(precip - evaporation), (precip - evaporation), recharge, recharge])
 
 print 'writing {}'.format(out_IRUNBND)
 MFnodesDF.sort(columns = 'cellnum', inplace = True)  # Sort by cellnum so that in correct order for saving ascii file.
 IRUNBND = np.reshape(MFnodesDF['segment'].values, (nrows, ncols))  # Reshape to grid dimensions
 np.savetxt(out_IRUNBND, IRUNBND, fmt='%i', delimiter=' ')
+FINF = np.reshape(MFnodesDF['Recharge'].values, (nrows, ncols))
+np.savetxt(out_FINF, FINF, fmt='%8.6f', delimiter=' ')
 
 #df, shpname, geo_column, prj
-GISio.df2shp(MFnodes_watbod, out_IRUNBND_shp, 'geometry',
+GISio.df2shp(MFnodesDF, out_IRUNBND_shp, 'geometry',
              os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
+# this one only prints out the points where waterbodies occur
+GISio.df2shp(MFnodes_watbod, os.path.join(workingdir + 'UZF_segments.shp'), 'geometry',
+             os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
+
+
+
+# read BAS file using flopy
+# where IBAS <= 0, set IUZFBND to 0
+# Read in list of other BC packages (DRN instead of CHD)
+# where that BC is active, set IUZFBND to 0 (assumes that it doesn't make sense to apply recharge to those cells; for
+# example, SFR would not be included in this list b/c the assumption is that recharge could occur within that cell).
+otherBCs = []
+
+ghbdata = open(ghbfile).readlines()
+for line in ghbdata:
+    if '601.' in line:
+        r, c = map(int, line.strip().split()[1:3])
+        cellnum = get_cellnum(r, c)
+        otherBCs.append(cellnum)
 
 
 # Notes:
@@ -182,11 +227,14 @@ GISio.df2shp(MFnodes_watbod, out_IRUNBND_shp, 'geometry',
 # with out additional information, it is not possible to know whether they are GW discharge or GW recharge areas.
 # Would be good to have estimated RO into lakes, but no idea where that would come from, so assume no RO.
 # 3. Generate a UZF file that reads in each of the arrays by name.
-# 4. Switch to using XML input files.
-# 5. Switch to using GeoPandas instead of Andy's GISio because more standardized and available.
-# 6. Convert to a Class for future implementation as part of a larger MF model generation process?
-# 7. Consider option flags for plotting some of the arrays rather than writing shapefiles. For example, the original
+# 4. Read directly from DIS file rather than from shapefiles of grid or nodes.  Read in IBOUND and CHD arrays to
+# inform IUZFBND array
+# 5. Switch to using XML input files.
+# 6. Switch to using GeoPandas instead of Andy's GISio because more standardized and available.
+# 7. Convert to a Class for future implementation as part of a larger MF model generation process?
+# 8. Consider option flags for plotting some of the arrays rather than writing shapefiles. For example, the original
 # problem with the IRUNBND array would have been detected earlier had it been plotted with matplotlib.
+#
 
 
 # unused code:
