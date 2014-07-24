@@ -18,6 +18,8 @@ import numpy as np
 import arcpy
 import os
 import sys
+import flopy.modflow as fpmf
+import flopy.utils as fputl
 from geopandas import GeoDataFrame
 GIS_utils_path = 'D:/PFJData2/Programs/GIS_utils'
 if GIS_utils_path not in sys.path:
@@ -41,17 +43,21 @@ SFR_shapefile = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/SFR_AndyFix/SFR_cellinfo_
 recharge = 0.002 # nice round number; 8.77 in/yr, which seems OK for this area.
 precip = 0.007301 # 32 in/yr; common # used for WI
 evaporation = 0.006845 # 30 in/yr ; rough average from Farnsworth, 1970s
-ghbfile = 'D:/ATLData/BadRiver/Calibration_runs/Opt7c/ghb.tpl'
-SFRmat1 = 'D:/ATLData/Documents/GitHub/SFR/Mat1_with_new_streams.csv'
+#ghbfile = 'D:/ATLData/BadRiver/Calibration_runs/Opt7c/ghb.tpl'
+#SFRmat1 = 'D:/ATLData/Documents/GitHub/SFR/Mat1_with_new_streams.csv'
 
 # temporary directories
 catchmentdir = 'D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/'
 workingdir = "D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/"
+mfdir = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/MODFLOW/'
+mfname = 'FWPvert'
+bas = os.path.join(mfdir + mfname + '.bas')
 
 # output
 out_IRUNBND = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_IRUNBND.dat'
 out_IRUNBND_shp = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_IRUNBND.shp'
-out_FINF = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_FINF.dat'
+out_FINF = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/temp/FWPvert_FINF.dat'
+out_iuzfbnd = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/temp/FWPvert_IUZFBND.dat'
 
 # initialize the arcpy environment
 arcpy.env.workspace = os.getcwd()
@@ -59,27 +65,26 @@ arcpy.env.overwriteOutput = True
 arcpy.env.qualifiedFieldNames = False
 #arcpy.CheckOutExtension("spatial") # Check spatial analyst license
 
-def get_cellnum(r, c, nrows=nrows, ncols=ncols):
-    cellnum = (r-1) * ncols + c
-    return cellnum
+#def get_cellnum(r, c, nrows=nrows, ncols=ncols):
+#    cellnum = (r-1) * ncols + c
+#    return cellnum
 
+def intarrayreader(infile, skiplines, NROWS, NCOLS):
+    indat = []
+    infile_dat = open(infile, 'r').readlines()
+    skp = 0
+    for line in infile_dat:
+        if (skp >= skiplines and len(indat) < (ncols * nrows)):
+            tmp = line.strip().split()
+            indat.extend(tmp)
+        skp += 1
+    indat = np.array(indat).astype(int)
+    indat = indat.reshape(NROWS, NCOLS)
+    return indat
+
+
+#mf = fpmf.Modflow.load(mfname, version = 'nwt', model_ws = mfdir)
 '''
-print 'removing old temporary and results files'
-if arcpy.Exists(catchmentdir + 'catchment_merge.shp'):
-    arcpy.Delete_management(catchmentdir + 'catchment_merge.shp')
-if arcpy.Exists(catchmentdir + 'catchment_mergeUTMft.shp'):
-    arcpy.Delete_management(catchmentdir + 'catchment_mergeUTMft.shp')
-if arcpy.Exists(workingdir + 'catchment_FWP.shp'):
-    arcpy.Delete_management(workingdir + 'catchment_FWP.shp')
-if arcpy.Exists(workingdir + 'waterbodies_FWP.shp'):
-    arcpy.Delete_management(workingdir + 'waterbodies_FWP.shp')
-if arcpy.Exists(workingdir + 'catchment_WBclip.shp'):
-    arcpy.Delete_management(workingdir + 'catchment_WBclip.shp')
-if arcpy.Exists(workingdir + 'SFR_watbodies.shp'):
-    arcpy.Delete_management(workingdir + 'SFR_watbodies.shp')
-if arcpy.Exists(workingdir + 'MFgrid_watbodies.shp'):
-    arcpy.Delete_management(workingdir + 'MFgrid_watbodies.shp')
-
 # preprocessing
 print 'merging NHDPlus catchment files:'
 for f in catchments:
@@ -176,7 +181,10 @@ for cn in cellnumbers:
 # That is, it assigns segments to all model nodes that were connected previously and fills with zero if no match found.
 MFnodesDF['segment'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
 MFnodesDF['WBtype'] = MFnodesDF.cellnum.apply(WBtype_dict.get).fillna('Land')
-# assign recharge ('FINF') based on water body type (open water = P-E)
+# Construct FINF array. Assign recharge ('FINF') based on water body type (open water = P-E).  Stick with estimated
+# recharge for wetlands because with out additional information, it is not possible to know whether they are GW
+# discharge or GW recharge areas. Would be good to have estimated RO into lakes, but no idea where that would come from,
+# so assume no RO.
 MFnodesDF['Recharge'] = MFnodesDF.WBtype.replace(['LakePond', 'Reservoir', 'Land', 'SwampMarsh'],
                                                  [(precip - evaporation), (precip - evaporation), recharge, recharge])
 
@@ -184,8 +192,15 @@ print 'writing {}'.format(out_IRUNBND)
 MFnodesDF.sort(columns = 'cellnum', inplace = True)  # Sort by cellnum so that in correct order for saving ascii file.
 IRUNBND = np.reshape(MFnodesDF['segment'].values, (nrows, ncols))  # Reshape to grid dimensions
 np.savetxt(out_IRUNBND, IRUNBND, fmt='%i', delimiter=' ')
+print 'writing {}'.format(out_FINF)
 FINF = np.reshape(MFnodesDF['Recharge'].values, (nrows, ncols))
 np.savetxt(out_FINF, FINF, fmt='%8.6f', delimiter=' ')
+print 'writing {}'.format(out_iuzfbnd)
+# read BAS file; where IBOUND <= 0, turn off UZF (set IUZFBND to 0)
+# To do: Read in list of other BC packages (eg: what if use DRN instead of CHD), then turn off UZF at those cells.
+ibound = intarrayreader(bas, 5, nrows, ncols)
+iuzfbnd = np.where(ibound >= 1, ibound, 0)
+np.savetxt(out_iuzfbnd, iuzfbnd, fmt='%i', delimiter=' ')
 
 #df, shpname, geo_column, prj
 GISio.df2shp(MFnodesDF, out_IRUNBND_shp, 'geometry',
@@ -193,23 +208,6 @@ GISio.df2shp(MFnodesDF, out_IRUNBND_shp, 'geometry',
 # this one only prints out the points where waterbodies occur
 GISio.df2shp(MFnodes_watbod, os.path.join(workingdir + 'UZF_segments.shp'), 'geometry',
              os.path.join(workingdir + 'MFnodes_watbodies.shp')[:-4]+'.prj')
-
-
-
-# read BAS file using flopy
-# where IBAS <= 0, set IUZFBND to 0
-# Read in list of other BC packages (DRN instead of CHD)
-# where that BC is active, set IUZFBND to 0 (assumes that it doesn't make sense to apply recharge to those cells; for
-# example, SFR would not be included in this list b/c the assumption is that recharge could occur within that cell).
-otherBCs = []
-
-ghbdata = open(ghbfile).readlines()
-for line in ghbdata:
-    if '601.' in line:
-        r, c = map(int, line.strip().split()[1:3])
-        cellnum = get_cellnum(r, c)
-        otherBCs.append(cellnum)
-
 
 # Notes:
 # Do we need to remove UZF cells that overlap SFR cells?  No, removing these cells would reduce the amount of
@@ -221,14 +219,12 @@ for line in ghbdata:
 # appropriate for minimizing bias.
 
 # To Do:
-# 1. Write IUZFBND array of active/in active UZF cells. --> all 1s until read in DIS and IBOUND.
-# 2. Generate the recharge array. It should replace the RCH package. Where known Lakes occur, the recharge value
-# should equal precipitation minus evaporation (farnsworth?).  Stick with estimated recharge for wetlands because
-# with out additional information, it is not possible to know whether they are GW discharge or GW recharge areas.
-# Would be good to have estimated RO into lakes, but no idea where that would come from, so assume no RO.
-# 3. Generate a UZF file that reads in each of the arrays by name.
-# 4. Read directly from DIS file rather than from shapefiles of grid or nodes.  Read in IBOUND and CHD arrays to
-# inform IUZFBND array
+#
+#
+#
+# 3. Auto-generate a UZF file that reads in each of the arrays by name.
+# 4. Read directly from DIS file rather than from shapefiles of grid or nodes.  Read in IBOUND and BC arrays/packages to
+# directly with flopy
 # 5. Switch to using XML input files.
 # 6. Switch to using GeoPandas instead of Andy's GISio because more standardized and available.
 # 7. Convert to a Class for future implementation as part of a larger MF model generation process?
