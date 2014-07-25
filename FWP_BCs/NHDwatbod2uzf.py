@@ -1,18 +1,33 @@
 __author__ = 'pfjuckem, aleaf'
 '''
-Route MODFLOW UZF Package groundwater discharge at waterbodies to SFR segments, using catchment info from NHDplus v2,
-then generate a UZF file for input to MF.
+Program to write the 3 primary arrays for UZF (IUZFBND, FINF, IRUNBND) in order to run UZF and route discharge
+from waterbodies to SFR segments.
 Inputs:
-NHDPlus v2 waterbody files (e.g. NHDPlusV21_GL_04_NHDPlusCatchments_05.7z; available from http://www.horizon-systems.com/NHDPlus/NHDPlusV2_04.php)
-shapefiles of model grid cells, model domain, and SFR cells (all in same projection)
+1. NHDPlus v2 waterbody and catchment files:
+(e.g. NHDPlusV21_GL_04_NHDPlusCatchments_05.7z; available from http://www.horizon-systems.com/NHDPlus/NHDPlusV2_04.php)
+Catchments are needed because water bodies (wetlands) can span several catchments, complicating decisions as to which
+SFR segments to route into.
+2. NHDPlus v
+2. shapefiles of model grid nodess, model domain, and SFR cells (all in same projection)
 
-requirements:
-arcpy
+Dependancies:
+arcpy, numpy
 GISio and GISops, from aleaf/GIS_utils on github
 (these require the fiona, shapely, and pandas packages)
 
-Could re-write for total arcpy depencancy, but FWP model was too large for some SFRmaker analysis apps that depended
-upon arcpy.  The GIS_utils handled FWP better.
+Limitations: This method assumes that the entire area of any waterbody that overlaps with an SFR cell is able to route
+water to that SFR segment (isolated waterbodies are not routed). It also assumes that the potential recharge (FINF)
+within 'SwampMarsh' waterbodies (wetlands) is the same as that for land.  That is, without information on the degree of
+saturation or transpiration, there is little to justify deviation from a standard recharge array. Application of the
+Soil Water Balance (SWB) code will ameliorate this limitation.  Recharge to waterbodies noted as 'Lake/Pond' and
+'Reservoir' are assigned potential recharge rates (FINF) of precip minus evap.
+
+Future plans:
+1. Auto-generate the entire UZF file instead of just the 3 primary arrays.
+2. Read-in input from XML
+3. Re-write to utilize Geopandas instead of GISio.
+4. Read directly from DIS using flopy instead of requiring shapefile representation of domain and nodes. Not sure reading
+   SFR from the SFR package will be realistic at this time.
 '''
 import numpy as np
 import arcpy
@@ -27,8 +42,21 @@ if GIS_utils_path not in sys.path:
     #print sys.path
 import GISio
 import GISops
-
 import pandas as pd
+import sys
+import xml.etree.ElementTree as ET
+
+try:
+    xmlname=sys.argv[1]
+except:
+    xmlname='FWPinput.xml'
+inpardat = ET.parse(xmlname)
+inpars = inpardat.getroot()
+
+overwrite=inpardat.findall('.//overwrite')[0].text
+modeldomainshp=inpardat.findall('.//modexistgridshp')[0].text
+modelnodeshp=inpardat.findall('.//modexistnodesshp')[0].text
+
 
 # NHDPlus v2 catchment files (list)
 catchments = ['D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusGL/NHDPlus04/NHDPlusV21_GL_04_NHDPlusCatchments_05/NHDPlusGL/NHDPlus04/NHDPlusCatchment/Catchment.shp',
@@ -43,8 +71,6 @@ SFR_shapefile = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/SFR_AndyFix/SFR_cellinfo_
 recharge = 0.002 # nice round number; 8.77 in/yr, which seems OK for this area.
 precip = 0.007301 # 32 in/yr; common # used for WI
 evaporation = 0.006845 # 30 in/yr ; rough average from Farnsworth, 1970s
-#ghbfile = 'D:/ATLData/BadRiver/Calibration_runs/Opt7c/ghb.tpl'
-#SFRmat1 = 'D:/ATLData/Documents/GitHub/SFR/Mat1_with_new_streams.csv'
 
 # temporary directories
 catchmentdir = 'D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/'
@@ -81,9 +107,6 @@ def intarrayreader(infile, skiplines, NROWS, NCOLS):
     indat = np.array(indat).astype(int)
     indat = indat.reshape(NROWS, NCOLS)
     return indat
-
-
-#mf = fpmf.Modflow.load(mfname, version = 'nwt', model_ws = mfdir)
 '''
 # preprocessing
 print 'merging NHDPlus catchment files:'
@@ -104,7 +127,8 @@ arcpy.Clip_analysis(waterbodies, MFdomain, workingdir + 'waterbodies_FWP.shp')
 # Now isolate individual waterbodies within each catchment
 print 'clipping waterbodies by catchments'
 arcpy.Intersect_analysis([workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_FWP.shp'], workingdir + 'WB_cmt_clip.shp')
-# Note: arcpy.Clip_analysis(workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_FWP.shp', workingdir + 'WB_cmt_clip.shp') only clips perimeter, not interior catchments -- odd.
+# Note: arcpy.Clip_analysis(workingdir + 'waterbodies_FWP.shp', workingdir + 'catchment_FWP.shp', workingdir +
+# 'WB_cmt_clip.shp') only clips perimeter, not interior catchments -- odd.
 
 # Need to generate a unique ID that can be maintained during the spatial join b/c COMID overlaps watersheds
 print 'Creating Unique IDs'
@@ -124,7 +148,8 @@ arcpy.Intersect_analysis([MFnodes, workingdir + 'WB_cmt_clip.shp'], workingdir +
 # SpatialJoin was taking >48 hrs for FWP model grid.  Intersecting is much quicker.
 '''
 #  ########
-# all shapefiles are now created, so can comment out the above code if simply need to re-process the shapefiles for output.
+# all intermediate shapefiles are now created, so can comment out the above code if simply need to re-process the
+# shapefiles for output.
 # #########
 
 # now figure out which SFR segment each waterbody should drain to
