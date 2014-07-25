@@ -1,14 +1,18 @@
 <data>
 	<inputs>
+        <preproc>False</preproc>
         <overwrite>True</overwrite>
         <BASname>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/MODFLOW/FWPvert.bas</BASname>
+        <BASskiplines>5</BASskiplines>
         <MFdomain_shp>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_domain_UTMft.shp</MFdomain_shp>
         <MFnodes_shp>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_nodes1000_UTMft.shp</MFnodes_shp>
         <SFR_shapefile>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/SFR_AndyFix/SFR_cellinfo_FWPvert1000ft.shp</SFR_shapefile>
         # Catchments is a list...because WI spans two...
-        <cathments>['D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusGL/NHDPlus04/NHDPlusV21_GL_04_NHDPlusCatchments_05/NHDPlusGL/NHDPlus04/NHDPlusCatchment/Catchment.shp',
-              'D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusMS/NHDPlus07/NHDPlusV21_MS_07_NHDPlusCatchment_01/NHDPlusMS/NHDPlus07/NHDPlusCatchment/Catchment.shp']</cathments>
-        <waterbodies_shp>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/NHDPlusV21FWP/NHDWaterbody_merge_FWPregion_UTMft.shp</waterbodies_shp>
+        <catchments>[D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusGL/NHDPlus04/NHDPlusV21_GL_04_NHDPlusCatchments_05/NHDPlusGL/NHDPlus04/NHDPlusCatchment/Catchment.shp,
+              D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusMS/NHDPlus07/NHDPlusV21_MS_07_NHDPlusCatchment_01/NHDPlusMS/NHDPlus07/NHDPlusCatchment/Catchment.shp]</catchments>
+        # Waterbodies is a list...because WI spans two regional watersheds (MS and GL)
+        <waterbodies>[D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusMS/NHDPlus07/NHDSnapshot/Hydrography/NHDWaterbody.shp,
+            D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusGL/NHDPlus04/NHDSnapshot/Hydrography/NHDWaterbody.shp]</waterbodies>
 	</inputs>
 
     <values>
@@ -20,22 +24,22 @@
     <outputs>
         <out_IUZFBND>FWPvert_IUZFBND.dat</out_IUZFBND>
         <out_FINF>FWPvert_FINF.dat</out_FINF>
-        <out_IRUNBND>FWPvert_IRUNBND</out_IRUNBND>
+        <out_IRUNBND>FWPvert_IRUNBND.dat</out_IRUNBND>
     </outputs>
 
     <intermediate_files>
-        <junkGDB>C:/ARC/....catchments.gdb</junkGDB>
-        <modelcatchments>catchments_FWP.shp</modelcatchments>
+        <junkGDB>C:/Users/pfjuckem/Documents/ArcGIS/junk.gdb</junkGDB>
+        <modelcatchments>catchment_FWP.shp</modelcatchments>
         <modelwaterbodies>waterbodies_FWP.shp</modelwaterbodies>
-        <uniqueWB>ctm_watbods_FWP.shp</uniqueWB>
-        <SFR-WB>SFR_watbods_FWP.shp</SFR-WB>
-        <nodes-WB>MFnodes_watbods_FWP.shp</nodes-WB>
+        <uniqueWB>WB_cmt_clip.shp</uniqueWB>
+        <SFR_WB>SFR_watbodies.shp</SFR_WB>
+        <nodes_WB>MFnodes_watbodies.shp</nodes_WB>
     </intermediate_files>
 
 	<paths>
-        <catchmentdir>D:/ARC/Basemaps/National/Hydrography/NHDPlusV21</catchmentdir>
-        <workingdir>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC</workingdir>
-        <MFoutdir>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/temp</MFoutdir>
+        <catchmentdir>D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/</catchmentdir>
+        <working_dir>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/</working_dir>
+        <MFoutdir>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/script_output/</MFoutdir>
 	</paths>
 
     <spatial>

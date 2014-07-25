@@ -1,25 +1,22 @@
 import os
 import numpy as np
 
-mfdir = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/MODFLOW/'
-mfname = 'FWPvert'
-bas = os.path.join(mfdir + mfname + '.bas')
-out_iuzfbnd = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/temp/FWPvert_IUZFBND.dat'
-nrows = 930
-ncols = 650
+CHD = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/MODFLOW/FWPvert.chd'
+DRN_out = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/script_output/FWPvert.drn'
+# conductance = 0.1 ft/d * 1000ft wide * 1000ft long / 1 ft thick
+cond = (0.1 * 1000 * 1000 / 1)
+skiplines = 3
+face = 6
 
-def intarrayreader(infile, skiplines, NROWS, NCOLS):
-    indat = []
-    infile_dat = open(infile, 'r').readlines()
-    skp = 0
-    for line in infile_dat:
-        if (skp >= skiplines and len(indat) < (ncols * nrows)):
-            tmp = line.strip().split()
-            indat.extend(tmp)
-        skp += 1
-    indat = np.array(indat).astype(int)
-    indat = indat.reshape(NROWS, NCOLS)
-    return indat
+
+indat = []
+infile_dat = open(CHD, 'r').readlines()
+skp = 0
+for line in infile_dat:
+    if (skp >= skiplines):
+        tmp = line.strip([:4]).split()
+        indat.extend(tmp)
+    skp += 1
 
 print 'writing {}'.format(out_iuzfbnd)
 # read BAS file; where IBOUND <= 0, turn off UZF (set IUZFBND to 0)

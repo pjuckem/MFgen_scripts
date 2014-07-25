@@ -4,7 +4,7 @@
 # importing into GWVistas.  Future revisions should incorporate XML input
 # file and use of Flopy to read DIS file directly to generate grid (talk w/
 # BRC implementation in GlacKmaker.  Will also need to incorporate functionality
-# for deciding upon layer assignment (Lake Michigan).
+# for deciding upon layer assignment (Lake Michigan) with multi-layer model.
 # ---------------------------------------------------------------------------
 
 try:
