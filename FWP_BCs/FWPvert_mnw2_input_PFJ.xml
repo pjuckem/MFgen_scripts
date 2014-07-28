@@ -1,0 +1,28 @@
+<data>
+	<inputs>
+        <overwrite>True</overwrite>
+        <MFgrid_shp>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_grid1000_UTMft.shp</MFgrid_shp>
+        <WU_xls>D:/PFJData2/Programs/MFgen_scripts/FWP_BCs/sample.xlsx</WU_xls>
+	</inputs>
+
+	<paths>
+        <working_dir>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/</working_dir>
+        <MFoutdir>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/script_output/</MFoutdir>
+	</paths>
+
+    <values>
+        <skin>1.0</skin>
+    </values>
+
+    <outputs>
+        <Out_File>FWPvert_test.mnw2</Out_File>
+    </outputs>
+
+    <intermediate_files>
+        <junkGDB>C:/Users/pfjuckem/Documents/ArcGIS/junk.gdb</junkGDB>
+        <WU_points_shp>FWPvert_pumping_wells.shp</WU_points_shp>
+    </intermediate_files>
+
+    <spatial>
+    </spatial>
+</data>

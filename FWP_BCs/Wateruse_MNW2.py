@@ -66,7 +66,7 @@ SamplePts_1000UTMft_shp = "D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\Tables
 '''
 # Read XLS file into dataframe and export a point shapefile with Geopandas, then intersect with grid to get row,col
 # for each well.  Future versions will read DIS directly to gain info on layering.
-mfgridDF = gp.GeoDataFrame.from_file(MFgrid)
+# mfgridDF = gp.GeoDataFrame.from_file(MFgrid)
 # read in the Excel Water Use file
 WUdf = pd.read_excel(WU_data, 'KMSFH_WU_sample', na_values=['NA'])
 # Oddly, we have to truncate the field names to fit with shapefile conventions, otherwise the values won't be written.
@@ -96,10 +96,11 @@ arcpy.SpatialJoin_analysis(WU_points, MFgrid, WU_ptjoin)
 # For some unknown reason, I can't get the spatial join above to work.  It seems projection related, but I'm copying
 # the *.prj file for pete's sake!  Did in manually in ARC, so reading that one in now.  Need to fix this, but at a loss
 # for the moment...
+'''
 manuallyjoined = os.path.join(working_dir + WU_points[:-4] + 'IntGrd2.shp' )
 joined_gdf = pd.GeoDataFrame.from_file(manuallyjoined)
 MNWMAX = joined_gdf.count
-'''
+
 ofp = open(outfile, 'w')
 ofp.write('# MODFLOW-NWT MNW2 Package \n')
 {0:10d} {1:9d} {2:9d} {3:9.2f} {4:9.1f} {5:9d}\n'.format(int(use[0]), int(use[1]), int(use[2]), float(use[3]), use[4], us
