@@ -23,7 +23,7 @@ transpiration, there is little to justify deviation from a standard recharge arr
 is essentially recharge if no GW discharge occurs in a cell). Application of the Soil Water Balance (SWB) code should
 ameliorate this limitation for recharge.  Recharge to waterbodies noted as 'Lake/Pond' and 'Reservoir' are assigned
 potential recharge rates (FINF) of precip minus evap. Currently a single value is used for recharge (FINF), precip and
-evap. The code may be edited in the future to incorporate spatially distributed P and E, or even invoke ET for wetlands.
+evap. The code may be edited in the future to incorporate spatially distributed P and E.
 
 Future plans:
 1. Auto-generate the entire UZF file instead of just the 3 primary arrays.
@@ -36,10 +36,7 @@ Future plans:
 import numpy as np
 import arcpy
 import os
-import sys
-import flopy.modflow as fpmf
-import flopy.utils as fputl
-from geopandas import GeoDataFrame
+
 GIS_utils_path = 'D:/PFJData2/Programs/GIS_utils'
 if GIS_utils_path not in sys.path:
     sys.path.append(GIS_utils_path)

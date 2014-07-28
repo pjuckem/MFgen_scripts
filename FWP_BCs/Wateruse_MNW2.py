@@ -1,3 +1,4 @@
+__author__ = 'Shope, Juckem'
 #Program to use water use data throughout the FWP study area to create a Modflow *.MNW2 file
 
 #Python code to collect water use data throughout the NAWQA Fox-Wolf-Peshtigo (FWP) study area in Wisconsin. The code
@@ -10,29 +11,106 @@
 #Import the well points from the water use *.csv data file (CB 18 June, 2014). Import the polygon grid for the FWP
 # created in Modflow (PJF on 7 July, 2014). However, may not be necessary though since we can just find the files and
 # then join them for a new file.
-import arcpy
-arcpy.env.workspace = "D:\USGS\Shope_NAWQA\Tomorrow_Waupaca\Data\Tables\WaterUse"
 
+# Dependancies:
+# arcpy, pandas, xlrd (imported with pandas, but installed separately), xml.etree, sys, os, geopandas, numpy)
+
+
+import arcpy
+import pandas as pd
+import geopandas as gp
+from shapely.geometry import Point, LineString, Polygon
+import numpy as np
+import matplotlib.pyplot as plt
+import sys
+import xml.etree.ElementTree as ET
+import os
+import shutil
+
+
+def tf2flag(intxt):
+    # converts text written in XML file to True or False flag
+    if intxt.lower() == 'true':
+        return True
+    else:
+        return False
+
+# Read input from an XML file to facilitate collaboration and transportability
+try:
+    xmlname = sys.argv[1]
+except:
+    xmlname = 'FWPvert_mnw2_input_PFJ.xml'
+inpardat = ET.parse(xmlname)
+inpars = inpardat.getroot()
+
+overwrite = tf2flag(inpardat.findall('.//overwrite')[0].text) # uses function above to convert str to boolean.
+WU_data = inpardat.findall('.//WU_xls')[0].text
+MFgrid = inpardat.findall('.//MFgrid_shp')[0].text
+working_dir = inpardat.findall('.//working_dir')[0].text
+MFoutdir = inpardat.findall('.//MFoutdir')[0].text
+WU_points_name = inpardat.findall('.//WU_points_shp')[0].text
+outfile = inpardat.findall('.//Out_File')[0].text
+skin = float(inpardat.findall('.//skin')[0].text)
+WU_points = os.path.join(working_dir + WU_points_name)
+
+# initialize the arcpy environment
+arcpy.env.workspace = working_dir
+arcpy.env.overwriteOutput = overwrite
+arcpy.env.qualifiedFieldNames = True
+'''
 # Local variables:
 KMSFH_WU_sample_ = "D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\Tables\\WaterUse\\sample.xlsx\\KMSFH_WU_sample$"
 FWPvert_grid1000_UTMft = "FWPvert_grid1000_UTMft"
 Sample_pts = "Sample_pts"
 SamplePts_1000UTMft_shp = "D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\Tables\\WaterUse\\SamplePts_1000UTMft.shp"
+'''
+# Read XLS file into dataframe and export a point shapefile with Geopandas, then intersect with grid to get row,col
+# for each well.  Future versions will read DIS directly to gain info on layering.
+mfgridDF = gp.GeoDataFrame.from_file(MFgrid)
+# read in the Excel Water Use file
+WUdf = pd.read_excel(WU_data, 'KMSFH_WU_sample', na_values=['NA'])
+# Oddly, we have to truncate the field names to fit with shapefile conventions, otherwise the values won't be written.
+# Odd because the field names get truncated automatically, but if not dealt with directly, that auto fix vaporizes
+# the values!
+columns = []
+for column in WUdf.columns:
+    if len(column) > 10:
+        newcol = column[:10]
+    else:
+        newcol = column
+    WUdf.rename(columns={column:newcol}, inplace=True)
 
-# Take the example Water Use file (Sample.xlsx/KMSFH_WU_Sample) and get the x and y data
-arcpy.MakeXYEventLayer_management(KMSFH_WU_sample_, "UTM16FT_X", "UTM16FT_Y", Sample_pts, "", "")
+x, y = WUdf['UTM16FT_X'], WUdf['UTM16FT_Y']
+xy = zip(x, y)
+wellpoints = gp.GeoSeries([Point(x, y) for x, y in xy])
+WUdf['geometry'] = wellpoints
+#UTM83Z16_ft = '+proj=utm +zone=16 +ellps=GRS80 +datum=NAD83 +units=ft +no_defs' #UTM83 zone 16 feet, manually defined
+#WUgdf = gp.GeoDataFrame(WUdf, crs=UTM83Z16_ft)
+WUgdf = gp.GeoDataFrame(WUdf)
+WUgdf.to_file(WU_points)
+# hard coding the projection for now
+shutil.copyfile(MFgrid[:-4]+'.prj', WU_points[:-4]+'.prj')
+WU_ptjoin = WU_points[:-4] + 'IntGrd.shp'
+arcpy.SpatialJoin_analysis(WU_points, MFgrid, WU_ptjoin)
 
-# Use the x and y data (Sample_pts) and the grid (FWPvert_grid...) and use a spatial join of the grid to the well points
-# for row and col identifiers based on spatial relationships.
-arcpy.SpatialJoin_analysis(Sample_pts, FWPvert_grid1000_UTMft, SamplePts_1000UTMft_shp, "JOIN_ONE_TO_ONE", "KEEP_COMMON", "WU_ID \"WU_ID\" true true false 255 Text 0 0 ,First,#,,WU_ID,-1,-1;UTM16FT_X \"UTM16FT_X\" true true false 8 Double 6 15 ,First,#,,UTM16FT_X,-1,-1;UTM16FT_Y \"UTM16FT_Y\" true true false 8 Double 6 15 ,First,#,,UTM16FT_Y,-1,-1;LS_ALT_FT \"LS_ALT_FT\" true true false 8 Double 6 15 ,First,#,,LS_ALT_FT,-1,-1;OPEN_TOP_F \"OPEN_TOP_F\" true true false 8 Double 6 15 ,First,#,,OPEN_TOP_FT,-1,-1;OPEN_BOT_F \"OPEN_BOT_F\" true true false 8 Double 6 15 ,First,#,,OPEN_BOT_FT,-1,-1;AQ1SYSTEM \"AQ1SYSTEM\" true true false 255 Text 0 0 ,First,#,,AQ1SYSTEM,-1,-1;WU_CLASS \"WU_CLASS\" true true false 255 Text 0 0 ,First,#,,WU_CLASS,-1,-1;Q2011_15_C \"Q2011_15_C\" true true false 8 Double 6 15 ,First,#,,Q2011-15_CFD,-1,-1;row \"row\" true true false 4 Short 0 4 ,First,#,D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\GIS\\FWP_region\\FWPvert_grid1000_UTMft2\\FWPvert_grid1000_UTMft.shp,row,-1,-1;column \"column\" true true false 4 Short 0 4 ,First,#,D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\GIS\\FWP_region\\FWPvert_grid1000_UTMft2\\FWPvert_grid1000_UTMft.shp,column,-1,-1;delx \"delx\" true true false 16 Double 4 15 ,First,#,D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\GIS\\FWP_region\\FWPvert_grid1000_UTMft2\\FWPvert_grid1000_UTMft.shp,delx,-1,-1;dely \"dely\" true true false 16 Double 4 15 ,First,#,D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\GIS\\FWP_region\\FWPvert_grid1000_UTMft2\\FWPvert_grid1000_UTMft.shp,dely,-1,-1;area \"area\" true true false 20 Double 4 19 ,First,#,D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\GIS\\FWP_region\\FWPvert_grid1000_UTMft2\\FWPvert_grid1000_UTMft.shp,area,-1,-1;node \"node\" true true false 8 Long 0 8 ,First,#,D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\GIS\\FWP_region\\FWPvert_grid1000_UTMft2\\FWPvert_grid1000_UTMft.shp,node,-1,-1;cellnum \"cellnum\" true true false 9 Long 0 9 ,First,#,D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\GIS\\FWP_region\\FWPvert_grid1000_UTMft2\\FWPvert_grid1000_UTMft.shp,cellnum,-1,-1", "WITHIN", "", "")
+# For some unknown reason, I can't get the spatial join above to work.  It seems projection related, but I'm copying
+# the *.prj file for pete's sake!  Did in manually in ARC, so reading that one in now.  Need to fix this, but at a loss
+# for the moment...
+manuallyjoined = os.path.join(working_dir + WU_points[:-4] + 'IntGrd2.shp' )
+joined_gdf = pd.GeoDataFrame.from_file(manuallyjoined)
+MNWMAX = joined_gdf.count
+'''
+ofp = open(outfile, 'w')
+ofp.write('# MODFLOW-NWT MNW2 Package \n')
+{0:10d} {1:9d} {2:9d} {3:9.2f} {4:9.1f} {5:9d}\n'.format(int(use[0]), int(use[1]), int(use[2]), float(use[3]), use[4], us
 
-# target_features = 'D:\USGS\Shope_NAWQA\Tomorrow_Waupaca\Data\GIS\FWP_region\WaterUseEx'
-# #Note: This shapefile was created by adding XY data in ArcGIS from the example file "sample water use dataset for
-# # modeling.xlsx". It is not a vectorized table.
-# join_features = 'D:\USGS\Shope_NAWQA\Tomorrow_Waupaca\Data\GIS\FWP_region\FWPvert_grid1000_UTMft2\FWPvert_grid1000_UTMft.dbf'
-# out_feature_class = 'D:\USGS\Shope_NAWQA\Tomorrow_Waupaca\Data\GIS\FWP_region\WaterUseEx_1000UTMft'
-#
-# arcpy.SpatialJoin_analysis(target_features, join_features, out_feature_class, {KEEP_COMMON}, {WITHIN})
+# Get the highest water use by sorting the dataframe and selecting the top row, also gives the row info for that site ID
+Sorted = df.sort(['Q2011-15_CFD'], ascending=[0])
+Sorted.head(1)
+# Get highest water use just by getting the maximum value
+df['Q2011-15_CFD'].max()
+
+ # PFJ: you shouldn't need to vectorize as in Matlab.
 
 #read the Excel data from the water use dataset and vectorize
 [WellID,WellIDtxt] = xlsread('sample.xlsx','KMSFH_WU_sample','A2:a131')
@@ -116,3 +194,4 @@ for i = 1:No_Sites
     fprintf(fid,'%16s %s %9.2f %s\n',WellIDtxt{i},' ',Q2011_15out(i),'         ; 4.    WELLID,QDes')
 end
 fclose(fid)
+'''

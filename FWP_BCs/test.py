@@ -14,7 +14,6 @@ indat = []
 chdfile = open(CHD, 'r').readlines()
 outfile = open(DRN_out, 'w')
 skp = 0
-outfile.write('# MODFLOW-NWT Drain Package')
 
 def linereader(infile, skiplines):
     indat = []
@@ -31,11 +30,12 @@ def linereader(infile, skiplines):
 
 chdlist = linereader(chdfile, skiplines)
 outfile.write('# MODFLOW-NWT Drain Package \n'
-            '    ' + str(len(chdlist)) + '        ' + str(IDRNCB) + '  ' + 'AUX IFACE \n'
-            '    ' + str(len(chdlist)) + '         0' + '              Stress Period 1 \n')
+            '     ' + str(len(chdlist)) + '        ' + str(IDRNCB) + '  ' + 'AUX IFACE \n'
+            '     ' + str(len(chdlist)) + '         0' + '              Stress Period 1 \n')
 for line in chdlist:
     use = line[:4]
     use.extend(add)
-    outfile.write('%10d, %10d, %10d, %10f, %10f, $10d' % (int(use[0]), int(use[1]), int(use[2]), float(use[3]), use[4], use[5]))
+    #outfile.write('%10d, %10d, %10d, %10.3f, %10.3f, $10d' % (int(use[0]), int(use[1]), int(use[2]), float(use[3]), use[4], use[5]))
+    outfile.write('{0:10d} {1:9d} {2:9d} {3:9.2f} {4:9.1f} {5:9d}\n'.format(int(use[0]), int(use[1]), int(use[2]), float(use[3]), use[4], use[5]))
 
 outfile.close()
