@@ -1,24 +1,23 @@
 __author__ = 'Shope, Juckem'
-#Program to use water use data throughout the FWP study area to create a Modflow *.MNW2 file
 
-#Python code to collect water use data throughout the NAWQA Fox-Wolf-Peshtigo (FWP) study area in Wisconsin. The code
+# Python code to collect water use data throughout the NAWQA Fox-Wolf-Peshtigo (FWP) study area in Wisconsin. The code
 # uses water use data compiled by C. Buchwald and includes well ID, location, altitude, top and bot casing depth,
 # aquifer, well class, and the water use. A single water use value is assumed that incorporates the entire period. The
 # MODFLOW grid is also used to prescribe the row and col locations of each well on the grid for the *.MNW2 file.
 
 # created/updated by C Shope - 23 July, 2014
 
-#Import the well points from the water use *.csv data file (CB 18 June, 2014). Import the polygon grid for the FWP
+# Import the well points from the water use *.csv data file (CB 18 June, 2014). Import the polygon grid for the FWP
 # created in Modflow (PJF on 7 July, 2014). However, may not be necessary though since we can just find the files and
 # then join them for a new file.
 
 # Dependancies:
-# arcpy, pandas, xlrd (imported with pandas, but installed separately), xml.etree, sys, os, geopandas, numpy)
+# arcpy, pandas, xlrd (imported with pandas, but installed separately), xml.etree, sys, os, geopandas,
 
 
 import arcpy
 import pandas as pd
-import geopandas as gp
+import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon
 import numpy as np
 import matplotlib.pyplot as plt
@@ -39,19 +38,39 @@ def tf2flag(intxt):
 try:
     xmlname = sys.argv[1]
 except:
-    xmlname = 'FWPvert_mnw2_input_PFJ.xml'
+    xmlname = 'FWPvert_mnw2_input_CLS.xml'
 inpardat = ET.parse(xmlname)
 inpars = inpardat.getroot()
 
-overwrite = tf2flag(inpardat.findall('.//overwrite')[0].text) # uses function above to convert str to boolean.
-WU_data = inpardat.findall('.//WU_xls')[0].text
+####
+# It would be good to add other variables to the xml, such as elevation, well depth, casing depth, etc. rather than
+# hard-code them for this one example.  Similarly, we could read-in a list of Qfields over-which to average (or a
+# dictionary of Qfields and weights by #yrs).
+####
+
+overwrite = tf2flag(inpardat.findall('.//overwrite')[0].text)  # uses function above to convert str to boolean.
 MFgrid = inpardat.findall('.//MFgrid_shp')[0].text
+pump_data = inpardat.findall('.//WU_xls')[0].text
+xls_sheet = inpardat.findall('.//WU_sheet')[0].text
+pump_proj = inpardat.findall('.//WU_prj_file')[0].text
+x_coord = inpardat.findall('.//X-coord_field')[0].text
+y_coord = inpardat.findall('.//Y-coord_field')[0].text
+q_field = inpardat.findall('.//Qfield')[0].text
 working_dir = inpardat.findall('.//working_dir')[0].text
 MFoutdir = inpardat.findall('.//MFoutdir')[0].text
-WU_points_name = inpardat.findall('.//WU_points_shp')[0].text
+pump_points_name = inpardat.findall('.//WU_points_shp')[0].text
 outfile = inpardat.findall('.//Out_File')[0].text
-skin = float(inpardat.findall('.//skin')[0].text)
-WU_points = os.path.join(working_dir + WU_points_name)
+IWL2CB = int(inpardat.findall('.//IWL2CB')[0].text)
+MNWPRNT = int(inpardat.findall('.//MNWPRNT')[0].text)
+PUMPLOC = int(inpardat.findall('.//PUMPLOC')[0].text)
+Qlimit = int(inpardat.findall('.//Qlimit')[0].text)
+PPFLAG = int(inpardat.findall('.//PPFLAG')[0].text)
+PUMPCAP = int(inpardat.findall('.//PUMPCAP')[0].text)
+Rw = float(inpardat.findall('.//Rw')[0].text)
+Rskin = float(inpardat.findall('.//Rskin')[0].text)
+Kskin = float(inpardat.findall('.//Kskin')[0].text)
+
+pump_points = os.path.join(working_dir + pump_points_name)
 
 # initialize the arcpy environment
 arcpy.env.workspace = working_dir
@@ -65,45 +84,64 @@ Sample_pts = "Sample_pts"
 SamplePts_1000UTMft_shp = "D:\\USGS\\Shope_NAWQA\\Tomorrow_Waupaca\\Data\\Tables\\WaterUse\\SamplePts_1000UTMft.shp"
 '''
 # Read XLS file into dataframe and export a point shapefile with Geopandas, then intersect with grid to get row,col
-# for each well.  Future versions will read DIS directly to gain info on layering.
-# mfgridDF = gp.GeoDataFrame.from_file(MFgrid)
-# read in the Excel Water Use file
-WUdf = pd.read_excel(WU_data, 'KMSFH_WU_sample', na_values=['NA'])
+# for each well.
+
+# Read in the Water Use data from an Excel file and specified worksheet
+pumpdf = pd.read_excel(pump_data, xls_sheet, na_values=['NA'])
+
 # Oddly, we have to truncate the field names to fit with shapefile conventions, otherwise the values won't be written.
 # Odd because the field names get truncated automatically, but if not dealt with directly, that auto fix vaporizes
 # the values!
 columns = []
-for column in WUdf.columns:
+warning = 0
+for column in pumpdf.columns:
     if len(column) > 10:
         newcol = column[:10]
+        warning += 1
+        if warning == 1:
+            print 'Some attribute field names (column headers) are more than 10 characters long. \n' \
+                  'These names will be truncated, which may be problematic if they are specified in the XML input file. \n' \
+                  'Consider re-naming these attribute fields (columns) and re-run the program.'
     else:
         newcol = column
-    WUdf.rename(columns={column:newcol}, inplace=True)
+    pumpdf.rename(columns={column:newcol}, inplace=True)  # replaces current column headers using a dictionary {'a':'b'}
 
-x, y = WUdf['UTM16FT_X'], WUdf['UTM16FT_Y']
+# generate a 'geometry' field in order to create a geospatial dataframe and shapefile
+x, y = pumpdf[x_coord], pumpdf[y_coord]
 xy = zip(x, y)
-wellpoints = gp.GeoSeries([Point(x, y) for x, y in xy])
-WUdf['geometry'] = wellpoints
+wellpoints = gpd.GeoSeries([Point(x, y) for x, y in xy])
+pumpdf['geometry'] = wellpoints
 #UTM83Z16_ft = '+proj=utm +zone=16 +ellps=GRS80 +datum=NAD83 +units=ft +no_defs' #UTM83 zone 16 feet, manually defined
-#WUgdf = gp.GeoDataFrame(WUdf, crs=UTM83Z16_ft)
-WUgdf = gp.GeoDataFrame(WUdf)
-WUgdf.to_file(WU_points)
-# hard coding the projection for now
-shutil.copyfile(MFgrid[:-4]+'.prj', WU_points[:-4]+'.prj')
-WU_ptjoin = WU_points[:-4] + 'IntGrd.shp'
-arcpy.SpatialJoin_analysis(WU_points, MFgrid, WU_ptjoin)
+#pump_gdf = gpd.GeoDataFrame(pumpdf, crs=UTM83Z16_ft)
+pump_gdf = gpd.GeoDataFrame(pumpdf)  # convert to a geodataframe
+pump_gdf.to_file(pump_points)  # create a shapefile
+shutil.copyfile(pump_proj, pump_points[:-4]+'.prj')  # assign projection by copying the *.prj file for now
+pump_ptjoin = pump_points[:-4] + 'JoinGrd.shp' # name the output of the join
+arcpy.SpatialJoin_analysis(pump_points, MFgrid, pump_ptjoin)
 
-# For some unknown reason, I can't get the spatial join above to work.  It seems projection related, but I'm copying
-# the *.prj file for pete's sake!  Did in manually in ARC, so reading that one in now.  Need to fix this, but at a loss
-# for the moment...
-'''
-manuallyjoined = os.path.join(working_dir + WU_points[:-4] + 'IntGrd2.shp' )
-joined_gdf = pd.GeoDataFrame.from_file(manuallyjoined)
-MNWMAX = joined_gdf.count
+joined_gdf = gpd.GeoDataFrame.from_file(pump_ptjoin)
+MNWMAX = joined_gdf.last_valid_index()
 
+####
+# Do the rest of the math and manipulations here
+####
+
+# Write the output to a file.
 ofp = open(outfile, 'w')
-ofp.write('# MODFLOW-NWT MNW2 Package \n')
-{0:10d} {1:9d} {2:9d} {3:9.2f} {4:9.1f} {5:9d}\n'.format(int(use[0]), int(use[1]), int(use[2]), float(use[3]), use[4], us
+ofp.write('# MODFLOW-NWT MNW2 Package \n'
+        '{0:5d} {1:5d} {2:5d}\n'.format(MNWMAX, IWL2CB, MNWPRNT))
+# the above line specifies a dictionary that matches the position (0, 1, 2... recall that python is zero-based) of the
+# variables listed at the end of the line with the format (5d = integer of 5 spaces). The .format(variable, variable...)
+# specifies what to write.
+# The "spam & eggs" example about half-way down this web-page is a nice example:
+#  http://www.python-course.eu/python3_formatted_output.php
+
+####
+# Print out the rest of the file here
+####
+ofp.close()
+print '\n The program ran successfully'
+'''
 
 # Get the highest water use by sorting the dataframe and selecting the top row, also gives the row info for that site ID
 Sorted = df.sort(['Q2011-15_CFD'], ascending=[0])
