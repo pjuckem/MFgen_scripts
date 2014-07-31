@@ -101,7 +101,7 @@ for column in pumpdf.columns:
         if warning == 1:
             print 'Some attribute field names (column headers) are more than 10 characters long. \n' \
                   'These names will be truncated, which may be problematic if they are specified in the XML input file. \n' \
-                  'Consider re-naming these attribute fields (columns) and re-run the program.'
+                  'Consider re-naming these attribute fields (columns) and re-run the program. \n'
     else:
         newcol = column
     pumpdf.rename(columns={column:newcol}, inplace=True)  # replaces current column headers using a dictionary {'a':'b'}
@@ -111,14 +111,15 @@ x, y = pumpdf[x_coord], pumpdf[y_coord]
 xy = zip(x, y)
 wellpoints = gpd.GeoSeries([Point(x, y) for x, y in xy])
 pumpdf['geometry'] = wellpoints
-#UTM83Z16_ft = '+proj=utm +zone=16 +ellps=GRS80 +datum=NAD83 +units=ft +no_defs' #UTM83 zone 16 feet, manually defined
-#pump_gdf = gpd.GeoDataFrame(pumpdf, crs=UTM83Z16_ft)
-pump_gdf = gpd.GeoDataFrame(pumpdf)  # convert to a geodataframe
+UTM83Z16_ft = {u'proj':u'utm', u'zone':16, u'datum':u'NAD83', u'units':u'us-ft', u'no_defs':True} #UTM83 zone 16 feet, manually defined
+pump_gdf = gpd.GeoDataFrame(pumpdf, crs=UTM83Z16_ft)
+
 pump_gdf.to_file(pump_points)  # create a shapefile
-shutil.copyfile(pump_proj, pump_points[:-4]+'.prj')  # assign projection by copying the *.prj file for now
+
 pump_ptjoin = pump_points[:-4] + 'JoinGrd.shp' # name the output of the join
 arcpy.SpatialJoin_analysis(pump_points, MFgrid, pump_ptjoin)
-
+#mfgriddf = gpd.GeoDataFrame.from_file(MFgrid)
+#intersected = pump_gdf.intersection(mfgriddf) # intersection method doesn't appear to work as expected.
 joined_gdf = gpd.GeoDataFrame.from_file(pump_ptjoin)
 MNWMAX = joined_gdf.last_valid_index()
 
