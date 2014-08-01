@@ -44,7 +44,7 @@ print 'Removing DRN cells where isolated active cells were converted to inactive
 header=('# MODFLOW-NWT Drain Package \n'
             '     ' + str(int(rows.shape[0]) - len(isolated)) + '        ' + str(IDRNCB) + '  ' + 'AUX IFACE \n'
             '     ' + str(int(rows.shape[0]) - len(isolated)) + '         0' + '              Stress Period 1')
-
+i = 1
 newrows = []
 remove = []
 for i, line in enumerate(rows):
