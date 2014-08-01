@@ -6,6 +6,11 @@ the DRN package but no others.  This code could be converted to a function or cl
 more flexibility in the future, esp. if isolated branches (more than just 1 isolated cell)
 could be identified automatically...but I bailed on that due to time.
 
+Note: Flopy won't properly read the BAS file if starting heads are read from an external file.
+In this case, suggest creating a dummy BAS file where the call to an external heads file is replaced
+with a uniform head.  Otherwise, write a script to pull the binary heads and read them into the BAS
+file independently of flopy.
+
 Dependancies: Flopy and a set of MF input files (BAS and DRN).  Note that these files
 need to be generated with other scripts or GUIs. Also note that the original DRN file for
 the FWP case was copied from a CHD file.
@@ -39,7 +44,7 @@ m = fp.modflow.Modflow.load(namfile,)
 bas = m.get_package('BAS6')
 ibound = bas.getibound()  # np 3d array (nlay, nrow, ncol)
 ibound = np.absolute(ibound)  # should add a flag for user to choose to remove -1 from ibound.
-print '\n Converting isolated active cells to inactive. \n'
+print '\nConverting isolated active cells to inactive. \n'
 for cells in isolated:
     rindex = cells[0]-1
     cindex = cells[1]-1
@@ -68,6 +73,7 @@ drn = m.get_package('DRN')
 rows = drn.layer_row_column_elevation_cond[0]
 
 print 'Removing DRN cells where isolated active cells were converted to inactive.\n'
+
 i = 1
 newrows = []
 remove = []
@@ -82,18 +88,17 @@ for i, line in enumerate(rows):
         cindex = cells[1]
         if (row == rindex and col == cindex):
             remove.append(i)
-    newrows.append([lay, row, col, elev, cond])
-    #drnfile.write('{0:10d} {1:9d} {2:9d} {3:9.2f} {4:9.1f} {5:9d}\n'
-    #                      .format(lay, row, col, elev, cond, face))
+    newrows.append([lay, row, col, elev, cond, face])
+
 newrows = np.array(newrows)
 remove = np.array(remove)
 keeprows = np.delete(newrows, remove, 0)
 
 print 'Updateing the DRN file with the new list of DRN cells.'
 header = ('# MODFLOW-NWT Drain Package \n'
-            '     ' + str(int(keeprows.shape[0])) + '        ' + str(IDRNCB) + '  \n'  # + 'AUX IFACE \n'
+            '     ' + str(int(keeprows.shape[0])) + '        ' + str(IDRNCB) + '  ' + 'AUX IFACE \n'
             '     ' + str(int(keeprows.shape[0])) + '         0' + '              Stress Period 1')
-np.savetxt(drn_file, keeprows, fmt='%10d %9d %9d %9.2f %9.1f',
+np.savetxt(drn_file, keeprows, fmt='%10d %9d %9d %9.2f %9.1f %9d',
            header=header, comments='', delimiter='')
 
 # Flowpy keeps throwing an error during the write_file routine. Doesn't like taking input from
