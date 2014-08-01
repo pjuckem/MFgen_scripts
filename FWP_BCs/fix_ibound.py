@@ -108,8 +108,9 @@ np.savetxt(drn_file, keeprows, fmt='%10d %9d %9d %9.2f %9.1f %9d',
 #fp.modflow.ModflowDrn.assign_layer_row_column_data(drn, newrows, int(rows.shape[1]))
 #fp.modflow.ModflowDrn.write_file(drn)
 
-'''
-Have to abandon effort to identify isolated active cells automatically...
+
+# Have to abandon effort to identify isolated active cells automatically...
+
 l, r, c = ibound.shape
 r_zeros = np.zeros(c, dtype=int)
 c_zeros = np.zeros(r, dtype=int)
@@ -124,13 +125,11 @@ right = np.hstack((c_zeros, ibound[0]))  # add column along left side of grid (m
 right = np.hsplit(right, np.array([int(c)]))[0]  # remove column along right side of grid
 left = np.hstack((ibound[0], c_zeros))  # add column along right
 left = np.hsplit(left, np.array([1]))[1]  # remove column along left
-isum = []
-for i, j in enumerate(ibound[0]):
-    sum = np.sum((up, down, left, right))
-    isum = np.append(sum)
-isumarray = isum.reshape(int(r), int(c))
-'''
 
-
-
+mask = np.ma.masked_equal(ibound, 0)  # mask out inactive cells.
+# for an unmasked cell (active), if adding U,D,L,R, sums to zero, it's surrounded by inactive cells.
+# would likely have to do this recursively to isolate islands larger than 1 cell.
+tot = np.add(up, down)
+tot = np.add(tot, right)
+tot = np.add(tot, left)  # add them all.  Where tot = 4 = isolated cell. Set inactive (0)
 
