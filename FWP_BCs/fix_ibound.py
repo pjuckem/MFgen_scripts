@@ -65,7 +65,7 @@ newrows = np.array(newrows)
 remove = np.array(remove)
 keeprows = np.delete(newrows, remove, 0)
 print 'Updateing the DRN file with the new list of DRN cells.'
-np.savetxt(drn_file, keeprows, fmt='%10d, %9d, %9d, %9.2f, %9.1f, %9d',
+np.savetxt(drn_file, keeprows, fmt='%10d %9d %9d %9.2f %9.1f %9d',
            header=header, comments='', delimiter='')
 #fp.modflow.ModflowDrn.assign_layer_row_column_data(drn, newrows, int(rows.shape[1]))
 #fp.modflow.ModflowDrn.write_file(drn)
