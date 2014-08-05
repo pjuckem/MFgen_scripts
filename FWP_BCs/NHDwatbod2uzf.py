@@ -36,6 +36,7 @@ Future plans:
 import numpy as np
 import arcpy
 import os
+import sys
 
 GIS_utils_path = 'D:/PFJData2/Programs/GIS_utils'
 if GIS_utils_path not in sys.path:
@@ -85,43 +86,10 @@ catchment_dir = inpardat.findall('.//catchmentdir')[0].text
 working_dir = inpardat.findall('.//working_dir')[0].text
 MFoutdir = inpardat.findall('.//MFoutdir')[0].text
 
-'''
-# NHDPlus v2 catchment files (list)
-catchments = ['D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusGL/NHDPlus04/NHDPlusV21_GL_04_NHDPlusCatchments_05/NHDPlusGL/NHDPlus04/NHDPlusCatchment/Catchment.shp',
-              'D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusMS/NHDPlus07/NHDPlusV21_MS_07_NHDPlusCatchment_01/NHDPlusMS/NHDPlus07/NHDPlusCatchment/Catchment.shp']
-# NHDplus v2 waterbodies (no longer a list).  Note: formerly NHDPlus v2 catchment files (list)
-waterbodies = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/NHDPlusV21FWP/NHDWaterbody_merge_FWPregion_UTMft.shp'
-# input shapefile (should all be in same projection!)
-MFdomain = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_domain_UTMft.shp'
-MFgrid = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_grid1000_UTMft.shp'
-MFnodes = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_nodes1000_UTMft.shp'
-SFR_shapefile = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/SFR_AndyFix/SFR_cellinfo_FWPvert1000ft.shp'
-recharge = 0.002 # nice round number; 8.77 in/yr, which seems OK for this area.
-precip = 0.007301 # 32 in/yr; common # used for WI
-evaporation = 0.006845 # 30 in/yr ; rough average from Farnsworth, 1970s
-
-# temporary directories
-catchmentdir = 'D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/'
-workingdir = "D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/"
-mfdir = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/MODFLOW/'
-mfname = 'FWPvert'
-bas = os.path.join(mfdir + mfname + '.bas')
-
-# output
-out_IRUNBND = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_IRUNBND.dat'
-out_IRUNBND_shp = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_IRUNBND.shp'
-out_FINF = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/temp/FWPvert_FINF.dat'
-out_iuzfbnd = 'D:/PFJData2/Projects/NAQWA/Cycle3/FWP/temp/FWPvert_IUZFBND.dat'
-'''
 # initialize the arcpy environment
 arcpy.env.workspace = working_dir
 arcpy.env.overwriteOutput = overwrite
 arcpy.env.qualifiedFieldNames = False
-#arcpy.CheckOutExtension("spatial") # Check spatial analyst license
-
-#def get_cellnum(r, c, nrows=nrows, ncols=ncols):
-#    cellnum = (r-1) * ncols + c
-#    return cellnum
 
 def intarrayreader(infile, skiplines, NROWS, NCOLS):
     indat = []
@@ -135,21 +103,6 @@ def intarrayreader(infile, skiplines, NROWS, NCOLS):
     indat = np.array(indat).astype(int)
     indat = indat.reshape(NROWS, NCOLS)
     return indat
-
-'''
-def arrayreader(infile, skiplines, fmt, NROWS, NCOLS):
-    indat = []
-    infile_dat = open(infile, 'r').readlines()
-    skp = 0
-    for line in infile_dat:
-        if (skp >= skiplines and len(indat) < (ncols * nrows)):
-            tmp = line.strip().split()
-            indat.extend(tmp)
-        skp += 1
-    indat = np.array(indat).astype(fmt)
-    indat = indat.reshape(NROWS, NCOLS)
-    return indat
-'''
 
 # preprocessing
 if preproc:
@@ -205,14 +158,18 @@ SFRwatbods = GISio.shp2df(os.path.join(working_dir, sfr_WB))
 
 print 'assigning an SFR segment to each waterbody... (this may take awhile)'
 intersected_watbods = list(np.unique(SFRwatbods.WBID))
-segments_dict = {}
+#segments_dict = {}
+outseg_dict = {}
 for wb in intersected_watbods:
     try:
         # if one waterbody intersected multiple segment reaches, select the most common (mode) segment
-        segment = SFRwatbods[SFRwatbods.WBID == wb].segment.mode()[0]
+        #segment = SFRwatbods[SFRwatbods.WBID == wb].segment.mode()[0]
+        outseg = SFRwatbods[SFRwatbods.WBID == wb].outseg.mode()[0]
     except: # pandas crashes if mode is called on df of length 1 or 2
-        segment = SFRwatbods[SFRwatbods.WBID == wb].segment[0]
-    segments_dict[wb] = segment
+        #segment = SFRwatbods[SFRwatbods.WBID == wb].segment[0]
+        outseg = SFRwatbods[SFRwatbods.WBID == wb].outseg[0]
+    #segments_dict[wb] = segment
+    outseg_dict[wb] = outseg
 
 print 'Dimensioning arrays to match {}'.format(mfnode_shp)
 # get dimensions of grid and compute unique cell ID
@@ -227,7 +184,8 @@ MFnodes_watbod['cellnum'] = (MFnodes_watbod.row-1)*ncols + MFnodes_watbod.column
 # Make new column of SFR segment for each waterbody.
 # Uses the WBID-to-segments dictionary from SFRwaterbods and applies it to MFnodes_watbodies.shp.
 # That is, it assigns segments to the rest of the water body area (all model nodes that intersected the waterbody).
-MFnodes_watbod['segment'] = MFnodes_watbod.WBID.apply(segments_dict.get).fillna(0)
+#MFnodes_watbod['segment'] = MFnodes_watbod.WBID.apply(segments_dict.get).fillna(0)
+MFnodes_watbod['outseg'] = MFnodes_watbod.WBID.apply(outseg_dict.get).fillna(0)
 
 print 'Distinguishing between lakes and wetlands, and assigning and SFR segment to each node of the model... ' \
       '(this may take awhile)'
@@ -237,12 +195,17 @@ WBtype_dict = {}
 for cn in cellnumbers:
     try:
         # if multiple segments per cellnum, select the most common (mode)
-        segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment.mode()[0]
-        segment = int(segment)
+        #segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment.mode()[0]
+        #segment = int(segment)
+        outseg = MFnodes_watbod[MFnodes_watbod.cellnum == cn].outseg.mode()[0]
+        outseg = int(outseg)
     except:  # pandas crashes if mode is called on df of length 1 or 2
-        segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment[0]
-        segment = int(segment.max()) # when cellnums have 2 segments. This selects the most downstream Seg and converts to int.
-    cellnum_dict[cn] = segment
+        #segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment[0]
+        #segment = int(segment.max()) # when cellnums have 2 segments. This selects the most downstream Seg and converts to int.
+        outseg = MFnodes_watbod[MFnodes_watbod.cellnum == cn].outseg[0]
+        outseg = int(outseg.max())
+    #cellnum_dict[cn] = segment
+    cellnum_dict[cn] = outseg
     # setup the recharge array (FINF)
     WBtype = MFnodes_watbod[MFnodes_watbod.cellnum == cn].FTYPE[0]
     WBtype_dict[cn] = WBtype
@@ -251,7 +214,8 @@ for cn in cellnumbers:
 # Make new column of SFR segment for each grid node.
 # Uses the cellnum-to-segments dictionary from MFnodes_watbodies.shp and applies it to MFnodes (array of every node for the model).
 # That is, it assigns segments to all model nodes that were connected previously and fills with zero if no match found.
-MFnodesDF['segment'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
+#MFnodesDF['segment'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
+MFnodesDF['outseg'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
 MFnodesDF['WBtype'] = MFnodesDF.cellnum.apply(WBtype_dict.get).fillna('Land')
 
 # Construct FINF array. Assign recharge ('FINF') based on water body type (open water = P-E).  Stick with estimated
@@ -263,8 +227,10 @@ MFnodesDF['Recharge'] = MFnodesDF.WBtype.replace(['LakePond', 'Reservoir', 'Land
 
 print 'writing {}'.format(out_IRUNBND)
 MFnodesDF.sort(columns='cellnum', inplace=True)  # Sort by cellnum so that in correct order for saving ascii file.
-IRUNBND = np.reshape(MFnodesDF['segment'].values, (nrows, ncols))  # Reshape to grid dimensions
+#IRUNBND = np.reshape(MFnodesDF['segment'].values, (nrows, ncols))  # Reshape to grid dimensions
+IRUNBND = np.reshape(MFnodesDF['outseg'].values, (nrows, ncols))  # Reshape to grid dimensions
 np.savetxt(MFoutdir + out_IRUNBND, IRUNBND, fmt='%i', delimiter=' ')
+'''  No need to re-generate these arrays.
 print 'writing {}'.format(out_FINF)
 FINF = np.reshape(MFnodesDF['Recharge'].values, (nrows, ncols))
 np.savetxt(MFoutdir + out_FINF, FINF, fmt='%8.6f', delimiter=' ')
@@ -274,7 +240,7 @@ print 'writing {}'.format(out_IUZFBND)
 ibound = intarrayreader(bas, 5, nrows, ncols)
 iuzfbnd = np.where(ibound >= 1, ibound, 0)
 np.savetxt(MFoutdir + out_IUZFBND, iuzfbnd, fmt='%i', delimiter=' ')
-
+'''
 '''
 iuzfbnd = np.ones_like(IRUNBND, int)
 if bas:
@@ -287,10 +253,15 @@ np.savetxt(out_iuzfbnd, iuzfbnd, fmt='%i', delimiter=' ')
 '''
 
 #df, shpname, geo_column, prj
-GISio.df2shp(MFnodesDF, os.path.join(MFoutdir + (out_IRUNBND + '.shp')), 'geometry',
+#GISio.df2shp(MFnodesDF, os.path.join(MFoutdir + (out_IRUNBND + '.shp')), 'geometry',
+#             os.path.join(working_dir + nodes_WB)[:-4]+'.prj')
+# this one only prints out the points where waterbodies occur
+#GISio.df2shp(MFnodes_watbod, os.path.join(working_dir + 'UZF_segments.shp'), 'geometry',
+#             os.path.join(working_dir + nodes_WB)[:-4]+'.prj')
+GISio.df2shp(MFnodesDF, os.path.join(MFoutdir + (out_IRUNBND[:-4] + '_outseg.shp')), 'geometry',
              os.path.join(working_dir + nodes_WB)[:-4]+'.prj')
 # this one only prints out the points where waterbodies occur
-GISio.df2shp(MFnodes_watbod, os.path.join(working_dir + 'UZF_segments.shp'), 'geometry',
+GISio.df2shp(MFnodes_watbod, os.path.join(working_dir + 'UZF_outseg_segments.shp'), 'geometry',
              os.path.join(working_dir + nodes_WB)[:-4]+'.prj')
 
 '''
@@ -317,13 +288,4 @@ directly with flopy
 7. Convert to a Class for future implementation as part of a larger MF model generation process?
 8. Consider option flags for plotting some of the arrays rather than writing shapefiles. For example, the original
 problem with the IRUNBND array would have been detected earlier had it been plotted with matplotlib.
-
-
-
-unused code:
-#arcpy.Intersect_analysis([MFgrid, working_dir + uniqueWB], working_dir + 'MFgrid_watbodies.shp')
-#arcpy.CalculateAreas_stats(working_dir + 'MFgrid_watbodies.shp', working_dir + nodes_WB)
-#cellarea = np.max(MFnodes_watbod.F_AREA)
-#keep = MFnodes_watbod['F_AREA'] > (cellarea * 0.5)
-#MFnodes_watbod = MFnodes_watbod[keep]
 '''
