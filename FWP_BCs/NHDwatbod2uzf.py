@@ -30,22 +30,22 @@ Future plans:
 2.
 3. Read other BC files to avoid overlapping UZF with other BCs
 4. Re-write to utilize Geopandas instead of GISio.
-5. Read directly from DIS using flopy instead of requiring shapefile representation of domain and nodes. Not sure
-   that generating an SFR shapefile from the SFR package will be realistic at this time.
+5. Read directly from DIS using flopy instead of requiring shapefile representation of domain and nodes.
 '''
 import numpy as np
 import arcpy
 import os
+import pandas as pd
+import geopandas as gpd
 import sys
+import xml.etree.ElementTree as ET
+import flopy.modflow as fpmf
 
 GIS_utils_path = 'D:/PFJData2/Programs/GIS_utils'
 if GIS_utils_path not in sys.path:
     sys.path.append(GIS_utils_path)
-    #print sys.path
+#    #print sys.path
 import GISio
-import pandas as pd
-import sys
-import xml.etree.ElementTree as ET
 
 def tf2flag(intxt):
     # converts text written in XML file to True or False flag
@@ -57,7 +57,7 @@ def tf2flag(intxt):
 try:
     xmlname = sys.argv[1]
 except:
-    xmlname = 'FWPvert_uzfGEN_input_072414.xml'
+    xmlname = 'FWPvert_uzfGEN_input_080614.xml'
 inpardat = ET.parse(xmlname)
 inpars = inpardat.getroot()
 
@@ -153,8 +153,10 @@ if preproc:
     # FYI: SpatialJoin was taking >48 hrs for FWP model grid.  Intersecting is much quicker.
 
 # now figure out which SFR segment each waterbody should drain to
-print 'reading {} into pandas dataframe...'.format(os.path.join(working_dir, sfr_WB))
-SFRwatbods = GISio.shp2df(os.path.join(working_dir, sfr_WB))
+print 'reading {} into geopandas dataframe...'.format(os.path.join(working_dir, sfr_WB))
+#SFRwatbods = GISio.shp2df(os.path.join(working_dir, sfr_WB))
+SFRwatbods_gdf = gpd.read_file(os.path.join(working_dir, sfr_WB))
+SFRwatbods = pd.DataFrame(SFRwatbods_gdf)
 
 print 'assigning an SFR segment to each waterbody... (this may take awhile)'
 intersected_watbods = list(np.unique(SFRwatbods.WBID))
@@ -165,6 +167,7 @@ for wb in intersected_watbods:
         # if one waterbody intersected multiple segment reaches, select the most common (mode) segment
         #segment = SFRwatbods[SFRwatbods.WBID == wb].segment.mode()[0]
         outseg = SFRwatbods[SFRwatbods.WBID == wb].outseg.mode()[0]
+        print 'mode worked!!'
     except: # pandas crashes if mode is called on df of length 1 or 2
         #segment = SFRwatbods[SFRwatbods.WBID == wb].segment[0]
         outseg = SFRwatbods[SFRwatbods.WBID == wb].outseg[0]
@@ -173,12 +176,14 @@ for wb in intersected_watbods:
 
 print 'Dimensioning arrays to match {}'.format(mfnode_shp)
 # get dimensions of grid and compute unique cell ID
-MFnodesDF = GISio.shp2df(mfnode_shp, geometry=True)
+#MFnodesDF = GISio.shp2df(mfnode_shp, geometry=True)
+MFnodesDF = gpd.read_file(mfnode_shp)
 nrows, ncols = np.max(MFnodesDF.row), np.max(MFnodesDF.column)
 MFnodesDF['cellnum'] = (MFnodesDF.row-1)*ncols + MFnodesDF.column  # as per SFRmaker algorithm line 297 of SFR_plots.py
 
 print 'Linking the rest of each water body that did not directly overlap an SFR cell to the appropriate SFR segment'
-MFnodes_watbod = GISio.shp2df(os.path.join(working_dir + nodes_WB), geometry=True)
+#MFnodes_watbod = GISio.shp2df(os.path.join(working_dir + nodes_WB), geometry=True)
+MFnodes_watbod = gpd.read_file(os.path.join(working_dir + nodes_WB))
 MFnodes_watbod['cellnum'] = (MFnodes_watbod.row-1)*ncols + MFnodes_watbod.column
 
 # Make new column of SFR segment for each waterbody.
