@@ -17,7 +17,7 @@ model: model object from which the BAS file and IBOUND array will be obtained.  
 '''
 
 import numpy as np
-import flopy as fp
+import flopy.modflow as fpmf
 
 class IsoCells:
     """
@@ -30,7 +30,7 @@ class IsoCells:
         :param namfilename:
         """
         self.namfilename = namfilename
-        m = fp.modflow.Modflow.load(namfilename)
+        m = fpmf.Modflow.load(namfilename)
         self.bas = m.get_package('BAS6')
 
     def negatives(self, ibound): # test to see if negatives in ibound array
@@ -42,14 +42,13 @@ class IsoCells:
             print "Negative values were found in the IBOUND array. \n" \
                   "The absolute value will be written to the new IBOUND array"
 
-    def find_islands(self, bas):
+    def fix_islands(self, ibound):
         """
-        Find isolated cells in IBOUND and return a new IBOUND array.
-        :param bas:
+        Find isolated cells in a 2d-array (IBOUND) and return a new 2d IBOUND array with isolated 1s replaced by zeros.
+        :param: arr, a 2d array
         :return: newibnd
         """
 
-        ibound = bas.getibound()  # np 3d array (nlay, nrow, ncol)
         self.negatives(ibound) # check for negative values and print warning prior to creating new IBOUND
         ibound = np.absolute(ibound)
 
@@ -79,13 +78,14 @@ class IsoCells:
         newibnd = np.ma.filled(tot, fill_value=0)  # keep tot as it is, but convert masked cells back to zero.
         return newibnd
 
-    def fix_bas(self, bas):
+    def fix_ibound(self, bas):
         """
         Write the new IBOUND array to the BAS file and write the BAS file
         :param bas:
         :param newibnd:
         """
-        newibound = self.find_islands(self.namfilename)
+        ibound = bas.getibound()  # np 3d array (nlay, nrow, ncol)
+        newibound = self.fix_islands(ibound)
         print 'Updating the BAS file with the new IBOUND array.\n'
-        fp.modflow.ModflowBas.setibound(bas, ibound=newibound)
-        fp.modflow.ModflowBas.write_file(bas)
+        fpmf.ModflowBas.setibound(bas, ibound=newibound)
+        fpmf.ModflowBas.write_file(bas)
