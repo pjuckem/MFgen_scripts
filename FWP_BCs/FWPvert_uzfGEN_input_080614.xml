@@ -1,0 +1,49 @@
+<data>
+	<inputs>
+        <preproc>False</preproc>
+        <overwrite>True</overwrite>
+        <model_name>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/MODFLOW/FWPvert.nam</model_name>
+        <BASname>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/MODFLOW/FWPvert.bas</BASname>
+        <BASskiplines>5</BASskiplines>
+        <MFdomain_shp>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_domain_UTMft.shp</MFdomain_shp>
+        <MFnodes_shp>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/FWPvert_nodes1000_UTMft.shp</MFnodes_shp>
+        <SFR_shapefile>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/SFR_AndyFix/SFR_cellinfo_FWPvert1000ft.shp</SFR_shapefile>
+        # Catchments is a list...because WI spans two...
+        <catchments>[D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusGL/NHDPlus04/NHDPlusV21_GL_04_NHDPlusCatchments_05/NHDPlusGL/NHDPlus04/NHDPlusCatchment/Catchment.shp,
+              D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusMS/NHDPlus07/NHDPlusV21_MS_07_NHDPlusCatchment_01/NHDPlusMS/NHDPlus07/NHDPlusCatchment/Catchment.shp]</catchments>
+        # Waterbodies is a list...because WI spans two regional watersheds (MS and GL)
+        <waterbodies>[D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusMS/NHDPlus07/NHDSnapshot/Hydrography/NHDWaterbody.shp,
+            D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/NHDPlusGL/NHDPlus04/NHDSnapshot/Hydrography/NHDWaterbody.shp]</waterbodies>
+	</inputs>
+
+    <values>
+        <infiltration>0.002</infiltration>
+        <precip>0.007301</precip>
+        <evap>0.006845</evap>
+    </values>
+
+    <outputs>
+        <out_IUZFBND>FWPvert_IUZFBND.dat</out_IUZFBND>
+        <out_FINF>FWPvert_FINF.dat</out_FINF>
+        <out_IRUNBND>FWPvert_IRUNBND.dat</out_IRUNBND>
+    </outputs>
+
+    <intermediate_files>
+        <junkGDB>C:/Users/pfjuckem/Documents/ArcGIS/junk.gdb</junkGDB>
+        <modelcatchments>catchment_FWP.shp</modelcatchments>
+        <modelwaterbodies>waterbodies_FWP.shp</modelwaterbodies>
+        <uniqueWB>WB_cmt_clip.shp</uniqueWB>
+        <SFR_WB>SFR_watbodies.shp</SFR_WB>
+        <nodes_WB>MFnodes_watbodies.shp</nodes_WB>
+    </intermediate_files>
+
+	<paths>
+        <catchmentdir>D:/ARC/Basemaps/National/Hydrography/NHDPlusV21/</catchmentdir>
+        <working_dir>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/ARC/</working_dir>
+        <MFoutdir>D:/PFJData2/Projects/NAQWA/Cycle3/FWP/script_output/</MFoutdir>
+	</paths>
+
+    <spatial>
+        <projection>D:/PFJData2/Projects/NAQWA/Cycle3/Modeling/FWP/InputScripts/UTM83Z16FT.prj</projection>
+    </spatial>
+</data>
