@@ -39,6 +39,7 @@ import pandas as pd
 import geopandas as gpd
 import sys
 import xml.etree.ElementTree as ET
+import scipy
 import flopy.modflow as fpmf
 
 GIS_utils_path = 'D:/PFJData2/Programs/GIS_utils'
