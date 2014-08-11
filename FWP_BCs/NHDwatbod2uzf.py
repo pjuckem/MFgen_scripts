@@ -31,6 +31,7 @@ Future plans:
 3. Read other BC files to avoid overlapping UZF with other BCs
 4.
 5. Read directly from DIS using flopy instead of requiring shapefile representation of domain and nodes.
+6. plot arrays with matplotlib
 '''
 import numpy as np
 import arcpy
@@ -152,54 +153,64 @@ if preproc:
     # FYI: SpatialJoin was taking >48 hrs for FWP model grid.  Intersecting is much quicker.
 
 # now figure out which SFR segment each waterbody should drain to
-print 'reading {} into geopandas dataframe...'.format(os.path.join(working_dir, sfr_WB))
+print 'reading {} into geopandas dataframe...\n'.format(os.path.join(working_dir, sfr_WB))
 SFRwatbods = gpd.read_file(os.path.join(working_dir, sfr_WB))
 
-print 'assigning an SFR segment to each waterbody'
+print 'assigning an SFR segment to each waterbody\n'
 # match up waterbody IDs with intersected segments, and create a dictionary
 intersected_watbods = list(np.unique(SFRwatbods.WBID))
-#segments_dict = {}
-outseg_dict = {}
+segments_dict = {}
+#outseg_dict = {}
 for wb in intersected_watbods:
-    outseg = SFRwatbods[SFRwatbods.WBID == wb].outseg
-    outseg = int(stats.mode(outseg)[0])  # select the most common SFR segment that intersects the waterbody
-    outseg_dict[wb] = outseg
+    segments = SFRwatbods[SFRwatbods.WBID == wb].segment
+    segments = int(stats.mode(segments)[0])  # select the most common SFR segment that intersects the waterbody
+    segments_dict[wb] = segments
 
-print 'Dimensioning arrays to match {}'.format(mfnode_shp)
+print 'Dimensioning arrays to match {}\n'.format(mfnode_shp)
 # get dimensions of grid and compute unique cell ID
 MFnodesDF = gpd.read_file(mfnode_shp)
 nrows, ncols = np.max(MFnodesDF.row), np.max(MFnodesDF.column)
 MFnodesDF['cellnum'] = (MFnodesDF.row-1)*ncols + MFnodesDF.column  # as per SFRmaker algorithm line 297 of SFR_plots.py
 
-print 'Linking the rest of each water body that did not directly overlap an SFR cell to the appropriate SFR segment'
+print 'Linking the rest of each water body that did not directly overlap an SFR cell to the appropriate SFR segment\n'
 MFnodes_watbod = gpd.read_file(os.path.join(working_dir + nodes_WB))
 MFnodes_watbod['cellnum'] = (MFnodes_watbod.row-1)*ncols + MFnodes_watbod.column
+MFnodes_watbod.sort(columns='cellnum', inplace=True)
 
 # Make new column of SFR segment for each waterbody.
 # Uses the WBID-to-segments dictionary from SFRwaterbods and applies it to MFnodes_watbodies.shp.
 # That is, it assigns segments to the rest of the water body area (all model nodes that intersected the waterbody).
-#MFnodes_watbod['segment'] = MFnodes_watbod.WBID.apply(segments_dict.get).fillna(0)
-MFnodes_watbod['outseg'] = MFnodes_watbod.WBID.apply(outseg_dict.get).fillna(0)
+MFnodes_watbod['segment'] = MFnodes_watbod.WBID.apply(segments_dict.get).fillna(0)
+#MFnodes_watbod['outseg'] = MFnodes_watbod.WBID.apply(outseg_dict.get).fillna(0)
 
-print 'Distinguishing between lakes and wetlands, and assigning an SFR segment to each node of the model... '
+print 'Distinguishing between lakes and wetlands, and assigning an SFR segment to each node of the model... \n'
 # match up cell numbers for the DF of waterbodies with segments and waterbody type, and create dictionaries
 cellnumbers = list(np.unique(MFnodes_watbod.cellnum))
 cellnum_dict = {}
 WBtype_dict = {}
+multisegs = 0
+multiwbs = 0
 for cn in cellnumbers:
-    outseg = MFnodes_watbod[MFnodes_watbod.cellnum == cn].outseg
-    outseg = int(stats.mode(outseg)[0])
-    #cellnum_dict[cn] = segment
-    cellnum_dict[cn] = outseg
-    # setup the recharge array and UZF infiltration array (FINF)
-    WBtype = MFnodes_watbod[MFnodes_watbod.cellnum == cn].FTYPE
+    segment = MFnodes_watbod[MFnodes_watbod.cellnum == cn].segment.values
+    '''if segment.size > 1:
+        #print '     MORE THAN ONE SEGMENT PER CELLNUM.  FIX THIS!!'
+        multisegs += 1
+        mslist = MFnodes_watbod[['cellnum','row','column','segment','FTYPE']][MFnodes_watbod.cellnum == cn]
+        mslist['cn'] = cn'''
+    segment = int(stats.mode(segment)[0])
+    cellnum_dict[cn] = segment
+    #cellnum_dict[cn] = outseg
+    # setup the recharge array and UZF infiltration array (FINF).
+    WBtype = MFnodes_watbod[MFnodes_watbod.cellnum == cn].FTYPE.values
+    WBtype = stats.mode(WBtype)[0]
+    WBtype = WBtype[0].encode('ascii', 'ignore')  # Geopandas encodes str as unicode -- convert to ascii
     WBtype_dict[cn] = WBtype
 
 # Make new column of SFR segment for each grid node.
 # Uses the cellnum-to-segments dictionary from MFnodes_watbodies.shp and applies it to MFnodes (array of every node for the model).
 # That is, it assigns segments to all model nodes that were connected previously and fills with zero if no match found.
-#MFnodesDF['segment'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
-MFnodesDF['outseg'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
+MFnodesDF['segment'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
+#MFnodesDF['outseg'] = MFnodesDF.cellnum.apply(cellnum_dict.get).fillna(0)
 MFnodesDF['WBtype'] = MFnodesDF.cellnum.apply(WBtype_dict.get).fillna('Land')
 
 # Construct RCH & FINF arrays. Assign values based on water body type (open water = P-E).  Stick with estimated
@@ -213,28 +224,27 @@ MFnodesDF['Recharge'] = MFnodesDF.WBtype.replace(['LakePond', 'Reservoir', 'Land
 MFnodesDF['UZForRCH'] = MFnodesDF.WBtype.replace(['LakePond', 'Reservoir', 'Land', 'SwampMarsh'],
                                                  [1, 1, 0, 1])  # 0 = don't use uzf on dry land; will use rch instead
 
-print 'Loading model files for {}'.format(modnam)
+print 'Loading model files for {}\n'.format(modnam)
 mf = fpmf.Modflow.load(modnam)
 bas = mf.get_package('BAS6')
 ibound = bas.getibound()
 ibound = ibound[0, :, :]  # 2d array
-#indat = np.array(indat).astype(int)
 
 MFnodesDF.sort(columns='cellnum', inplace=True)  # Sort by cellnum so that in correct order for saving ascii file.
-# read BAS file; where IBOUND <= 0, turn off UZF (set IUZFBND to 0). Where IRUNBND is = 0, turn off UZF and use RCH instead.
+# Where IBOUND <= 0, turn off UZF (set IUZFBND to 0). Where IRUNBND is = 0, turn off UZF and use RCH instead.
 # To do: Read in list of other BC packages (eg: what if use DRN instead of CHD), then turn off UZF at those cells.
-print 'writing IUZFBND array to {}'.format(out_IUZFBND)
+print '--> writing IUZFBND array to {}'.format(out_IUZFBND)
 iuzfbnd = np.reshape(MFnodesDF['UZForRCH'].values, (nrows, ncols))
 #ibound = intarrayreader(bas, 5, nrows, ncols)
 iuzfbnd = np.where(ibound >= 1, iuzfbnd, 0)  # turn off uzf where model is inactive
 np.savetxt(MFoutdir + out_IUZFBND, iuzfbnd, fmt='%i', delimiter=' ')
 
-print 'writing IRUNBND array to {}'.format(out_IRUNBND)
-#IRUNBND = np.reshape(MFnodesDF['segment'].values, (nrows, ncols))  # Reshape to grid dimensions
-IRUNBND = np.reshape(MFnodesDF['outseg'].values, (nrows, ncols))  # Reshape to grid dimensions
+print '--> writing IRUNBND array to {}'.format(out_IRUNBND)
+IRUNBND = np.reshape(MFnodesDF['segment'].values, (nrows, ncols))  # Reshape to grid dimensions
+#IRUNBND = np.reshape(MFnodesDF['outseg'].values, (nrows, ncols))  # Reshape to grid dimensions
 np.savetxt(MFoutdir + out_IRUNBND, IRUNBND, fmt='%i', delimiter=' ')
 
-print 'writing FINF array to {}'.format(out_FINF)
+print '--> writing FINF array to {}'.format(out_FINF)
 FINF = np.reshape(MFnodesDF['Recharge'].values, (nrows, ncols))
 FINF = np.where(iuzfbnd >=1, FINF, 0)  # turn off infiltrate where uzf is inactive (precautionary)
 np.savetxt(MFoutdir + out_FINF, FINF, fmt='%8.6f', delimiter=' ')
@@ -246,58 +256,40 @@ vks = 2.0
 # Print current date (dd/mm/yyyy) and time (24 hr)
 date = (time.strftime("%d/%m/%Y %H:%M:%S"))
 uzffile = modnam[:-4] + '.uzf'
-print 'writing the UZF file to {}'.format(uzffile)
+print '\nwriting the UZF file to {}'.format(uzffile)
 ofp = open(uzffile, 'w')
 ofp.write('# MODFLOW-NWT UZF Package \n')
-ofp.write('# File generated on ' + str(date) + 'by NHDwatbod2uzf.py script')
-ofp.write('\n' '# NUZTOP IUZFOPT IRUNFLG IETFLG IUZFCB1 IUZFCB2 NUZGAG SURFDEP  (unsat parameters not used')
-ofp.write('\n{} {} {} {} {} {} {} {} {} '.format(nuztop, iuzfopt, irunflg, ietflg, iuzfcb1, iuzfcb2, nuzgag, surfdep))
-ofp.write('OPEN/CLOSE \'{}'.format(out_IUZFBND) + '\'  1  (FREE)  -1')
-ofp.write('OPEN/CLOSE \'{}'.format(out_IRUNBND) + '\'  1  (FREE)  -1')
-ofp.write('CONSTANT      {}'.format(vks) + '\n1')
+ofp.write('# File generated on ' + str(date) + ' by NHDwatbod2uzf.py script\n')
+ofp.write('# NUZTOP IUZFOPT IRUNFLG IETFLG IUZFCB1 IUZFCB2 NUZGAG SURFDEP (unsat parameters not used)\n')
+ofp.write('{} {} {} {} {} {} {} {} \n'.format(nuztop, iuzfopt, irunflg, ietflg, iuzfcb1, iuzfcb2, nuzgag, surfdep))
+ofp.write('OPEN/CLOSE \'{}'.format(out_IUZFBND) + '\'  1  (FREE)  -1\n')
+ofp.write('OPEN/CLOSE \'{}'.format(out_IRUNBND) + '\'  1  (FREE)  -1\n')
+ofp.write('CONSTANT      {}\n'.format(vks))
+ofp.write('1\n')
 ofp.write('OPEN/CLOSE \'{}'.format(out_FINF) + '\'  1  (FREE)  -1')
+ofp.close()
 print ' {}'.format(uzffile) + ' written successfully'
 
 # write the RCH file and fill the array
 nrchop, irchcb, unitnumber = [3, 0, 19]  # same as defaults, but explicit for clarity
 rchfile = modnam[:-4] + '.rch'
 print 'writing the RCH file to {}'.format(rchfile)
-rech = np.reshape(MFnodesDF['Recharge'].values, (nrows, ncols))  # apply recharge to all cells
+rech = np.reshape(MFnodesDF['Recharge'].values, (nrows, ncols))  # Initialize with recharge to all cells
 rech = np.where(iuzfbnd == 0, rech, 0)  # only apply recharge where uzf is not active
 rch = fpmf.ModflowRch(mf, rech=rech, nrchop=nrchop, irchcb=irchcb, unitnumber=unitnumber)
 fpmf.ModflowRch.write_file(rch)
 print ' {}'.format(rchfile) + ' written successfully'
-'''
-iuzfbnd = np.ones_like(IRUNBND, int)
-if bas:
-    ibound = arrayreader(bas, 5, int, nrows, ncols)
-    iuzfbnd = np.where(ibound >= 1, ibound, 0)
-if drn:
-    drncells = arrayreader(drn, 5, float, nrows, ncols)
-    iuzfbnd = np.where(drncells > 0, 0, iuzfbnd)
-np.savetxt(out_iuzfbnd, iuzfbnd, fmt='%i', delimiter=' ')
-'''
 
-#df, shpname, geo_column, prj
-#GISio.df2shp(MFnodesDF, os.path.join(MFoutdir + (out_IRUNBND + '.shp')), 'geometry',
-#             os.path.join(working_dir + nodes_WB)[:-4]+'.prj')
-# this one only prints out the points where waterbodies occur
-#GISio.df2shp(MFnodes_watbod, os.path.join(working_dir + 'UZF_segments.shp'), 'geometry',
-#             os.path.join(working_dir + nodes_WB)[:-4]+'.prj')
-#GISio.df2shp(MFnodesDF, os.path.join(MFoutdir + (out_IRUNBND[:-4] + '_outseg.shp')), 'geometry',
-#             os.path.join(working_dir + nodes_WB)[:-4]+'.prj')
-# this one only prints out the points where waterbodies occur
-#GISio.df2shp(MFnodes_watbod, os.path.join(working_dir + 'UZF_outseg_segments.shp'), 'geometry',
-#             os.path.join(working_dir + nodes_WB)[:-4]+'.prj')
 print 'Generating shapefiles for visual assistance and evaluation'
 # Create shapefile of all model nodes
 #MFnodesDF.to_file(os.path.join(MFoutdir + (out_IRUNBND[:-4] + '_outseg.shp')))  # create a shapefile
 #shutil.copyfile(projection, os.path.join(MFoutdir + (out_IRUNBND[:-4] +'.prj')))
 # assign projection by copying a *.prj file. More flexible than hardcoding it, and likely more intuitive for most users.
+
 # this one only prints out the points where waterbodies occur
-MFnodes_watbod.to_file(os.path.join(working_dir + 'UZF_outseg_segments.shp'))
-shutil.copyfile(projection, os.path.join(working_dir + 'UZF_outseg_segments.prj'))
-print '{}'.format(os.path.join(working_dir + 'UZF_outseg_segments.shp')) + ' was written successfully'
+MFnodes_watbod.to_file(os.path.join(working_dir + 'UZF_segments.shp'))
+shutil.copyfile(projection, os.path.join(working_dir + 'UZF_segments.prj'))
+print '{}'.format(os.path.join(working_dir + 'UZF_segments.shp')) + ' was written successfully'
 print '\n' 'Program completed successfully'
 '''
 Additional thoughts and notes:
@@ -308,15 +300,4 @@ it should be applied b/c most streams don't cover 1000ft.  Plus, it doesn't matt
 UZF cell as they're routed together. Besides, SFR cells should have lower STOPs then the land surface used for UZF b/c
 SFR drills deeper to enforce down-stream slopes, and b/c the top of the model, which UZF relies upon, was generated as
 the mean of the DEM, which seems appropriate for minimizing bias for UZF.
-
-To Do:
-#
-#
-#
-3. Auto-generate a UZF file that reads in each of the arrays by name.
-4. Read directly from DIS file rather than from shapefiles of grid or nodes.
-5.
-7. Convert to a Class for future implementation as part of a larger MF model generation process?
-8. Consider option flags for plotting some of the arrays rather than writing shapefiles. For example, the original
-problem with the IRUNBND array might have been detected earlier had it been plotted with matplotlib.
 '''
